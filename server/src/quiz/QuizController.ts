@@ -1,7 +1,9 @@
 import { Body, Controller, Get, Post, Query } from '@nestjs/common';
-import { QuizService } from './QuizService';
+import { QuizService } from './QuizService.js';
 import { z } from 'zod';
 
+// Minimal Zod schemas for API input validation only
+// Types come from Typegoose entities
 const GenerateInputZ = z.object({ 
   email: z.string().email(), 
   topic: z.string().min(1) 
@@ -9,12 +11,14 @@ const GenerateInputZ = z.object({
 
 const GradeInputZ = z.object({ 
   email: z.string().email(),
-  topic: z.string().min(1),
-  quizItems: z.array(z.any()),
-  submittedAnswers: z.array(z.object({ 
+  quiz: z.object({
+    topic: z.string().min(1),
+    quizItems: z.array(z.any()) // Accept any structure, validated by Typegoose
+  }),
+  questionSelectedAnswers: z.array(z.object({ 
     questionId: z.string(),
     selectedAnswerIds: z.array(z.string()).min(1)
-  })) 
+  }))
 });
 
 @Controller('quiz')
@@ -29,8 +33,8 @@ class QuizController {
 
   @Post('grade')
   async grade(@Body() body: any) {
-    const { email, topic, quizItems, submittedAnswers } = GradeInputZ.parse(body);
-    return this.service.gradeQuiz(email, topic, quizItems, submittedAnswers);
+    const { email, quiz, questionSelectedAnswers } = GradeInputZ.parse(body);
+    return this.service.gradeQuiz(email, quiz, questionSelectedAnswers);
   }
 
   @Get('list')

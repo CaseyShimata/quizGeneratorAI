@@ -1,5 +1,6 @@
+import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
-import { MainModule } from './MainModule';
+import { MainModule } from './MainModule.js';
 import { ConfigService } from '@nestjs/config';
 import mongoose from 'mongoose';
 

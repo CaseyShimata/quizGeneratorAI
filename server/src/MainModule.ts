@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
-import { QuizModule } from './quiz/QuizModule';
-import { mainConfig } from './mainConfig';
+import { QuizModule } from './quiz/QuizModule.js';
+import { mainConfig } from './mainConfig.js';
 
 @Module({
   imports: [

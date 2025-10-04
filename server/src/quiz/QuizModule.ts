@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { QuizService } from './QuizService';
-import { QuizController } from './QuizController';
+import { QuizService } from './QuizService.js';
+import { QuizController } from './QuizController.js';
 
 @Module({
   imports: [ConfigModule],
