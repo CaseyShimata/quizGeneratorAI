@@ -57,7 +57,7 @@ class QuizService {
     };
   }
 
-  async generateQuiz(email: string, topic: string): Promise<QuizForm> {
+  async generateQuiz(email: string, topic: string) {
     const messages: ChatCompletionMessageParam[] = [
       { 
         role: 'system', 
@@ -82,34 +82,39 @@ class QuizService {
 
     const content = GeneratedQuizContentZ.parse(parsed);
 
-    const doc = await QuizModel.create({
+    // Return the generated quiz without saving to DB
+    return {
       email,
       topic: content.topic,
-      quizItems: content.quizItems,
-      totalCorrect: 0,
-      aiMetadata: { source: 'openai', generatedAt: new Date().toISOString() }
-    });
-
-    return this.docToQuizForm(doc);
+      quizItems: content.quizItems
+    };
   }
 
-  async gradeQuiz(email: string, answers: { id: string; selectedAnswerId: string }[]): Promise<QuizForm> {
-    const doc = await QuizModel.findOne({ email }).sort({ createdAt: -1 }).exec();
-    if (!doc) throw new NotFoundException(`No quiz found for ${email}`);
-
+  async gradeQuiz(email: string, topic: string, quizItems: any[], answers: { id: string; selectedAnswerId: string }[]): Promise<QuizForm> {
     let totalCorrect = 0;
-    for (const submitted of answers) {
-      const item = doc.quizItems.find((i: any) => i.id === submitted.id);
-      if (!item) continue;
+    const gradedQuizItems = quizItems.map(item => {
+      const submittedAnswer = answers.find(a => a.id === item.id);
+      if (!submittedAnswer) return item;
 
-      item.selectedAnswerId = submitted.selectedAnswerId;
-      const answer = item.answers.find((a: any) => a.id === submitted.selectedAnswerId);
-      item.isCorrect = answer?.isCorrect === true;
-      if (item.isCorrect) totalCorrect++;
-    }
+      const selectedAnswer = item.answers.find((a: any) => a.id === submittedAnswer.selectedAnswerId);
+      const isCorrect = selectedAnswer?.isCorrect === true;
+      if (isCorrect) totalCorrect++;
 
-    doc.totalCorrect = totalCorrect;
-    await doc.save();
+      return {
+        ...item,
+        selectedAnswerId: submittedAnswer.selectedAnswerId,
+        isCorrect
+      };
+    });
+
+    // Save the graded quiz to database
+    const doc = await QuizModel.create({
+      email,
+      topic,
+      quizItems: gradedQuizItems,
+      totalCorrect,
+      aiMetadata: { source: 'openai', submittedAt: new Date().toISOString() }
+    });
 
     return this.docToQuizForm(doc);
   }
