@@ -1,13 +1,33 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { QuizService } from './QuizService.js';
-import { QuizController } from './QuizController.js';
+
+// Services
+import { GenerateQuizService } from './services/GenerateQuizService.js';
+import { GradeQuizService } from './services/GradeQuizService.js';
+import { ListQuizzesService } from './services/ListQuizzesService.js';
+
+// Controllers
+import { GenerateQuizController } from './controllers/GenerateQuizController.js';
+import { GradeQuizController } from './controllers/GradeQuizController.js';
+import { ListQuizzesController } from './controllers/ListQuizzesController.js';
 
 @Module({
   imports: [ConfigModule],
-  controllers: [QuizController],
-  providers: [QuizService],
-  exports: [QuizService]
+  controllers: [
+    GenerateQuizController,
+    GradeQuizController,
+    ListQuizzesController
+  ],
+  providers: [
+    GenerateQuizService,
+    GradeQuizService,
+    ListQuizzesService
+  ],
+  exports: [
+    GenerateQuizService,
+    GradeQuizService,
+    ListQuizzesService
+  ]
 })
 class QuizModule {}
 
