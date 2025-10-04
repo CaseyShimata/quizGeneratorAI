@@ -2,9 +2,9 @@ import { Injectable, NotFoundException, InternalServerErrorException } from '@ne
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
-import { QuizFormZ, GeneratedQuizContentZ } from './QuizSchema';
+import { GeneratedQuizContentZ, QuizFormZ } from './QuizSchema';
 import { QuizModel } from './QuizModel';
-import type { QuizForm } from './QuizSchema';
+import type { QuizForm, QuizItem, SubmittedAnswer } from './QuizSchema';
 
 @Injectable()
 class QuizService {
@@ -17,6 +17,7 @@ class QuizService {
     this.model = configService.get<string>('OPENAI_MODEL') || 'gpt-4o-mini';
     
     // Hand-written schema that matches OpenAI's strict requirements
+    // Structure mirrors QuizItemZ and AnswerZ from QuizSchema.ts
     this.generationSchema = {
       name: 'quiz_generation',
       strict: true,
@@ -90,37 +91,57 @@ class QuizService {
     };
   }
 
-  async gradeQuiz(email: string, topic: string, quizItems: any[], answers: { id: string; selectedAnswerId: string }[]): Promise<QuizForm> {
+  async gradeQuiz(
+    email: string, 
+    topic: string, 
+    quizItems: QuizItem[], 
+    submittedAnswers: SubmittedAnswer[]
+  ): Promise<QuizForm> {
+    // Grade the quiz by comparing submitted answers with correct answers
     let totalCorrect = 0;
-    const gradedQuizItems = quizItems.map(item => {
-      const submittedAnswer = answers.find(a => a.id === item.id);
-      if (!submittedAnswer) return item;
+    
+    for (const submitted of submittedAnswers) {
+      const question = quizItems.find(q => q.id === submitted.questionId);
+      if (!question) continue;
 
-      const selectedAnswer = item.answers.find((a: any) => a.id === submittedAnswer.selectedAnswerId);
-      const isCorrect = selectedAnswer?.isCorrect === true;
-      if (isCorrect) totalCorrect++;
+      // Get selected answers
+      const selectedAnswers = question.answers.filter(a => 
+        submitted.selectedAnswerIds.includes(a.id)
+      );
 
-      return {
-        ...item,
-        selectedAnswerId: submittedAnswer.selectedAnswerId,
-        isCorrect
-      };
-    });
+      // Get correct answers
+      const correctAnswers = question.answers.filter(a => a.isCorrect);
+      
+      // For single-select: Check if the one selected answer is correct
+      // For multi-select: Check if ALL selected answers are correct AND ALL correct answers are selected
+      const allSelectedAreCorrect = selectedAnswers.every(a => a.isCorrect);
+      const allCorrectAreSelected = question.allowMultipleSelections
+        ? correctAnswers.every(ca => submitted.selectedAnswerIds.includes(ca.id))
+        : true;
 
-    // Save the graded quiz to database
+      if (allSelectedAreCorrect && allCorrectAreSelected && selectedAnswers.length > 0) {
+        totalCorrect++;
+      }
+    }
+
+    // Create quiz form with graded results
     const doc = await QuizModel.create({
       email,
       topic,
-      quizItems: gradedQuizItems,
-      totalCorrect,
-      aiMetadata: { source: 'openai', submittedAt: new Date().toISOString() }
+      quizItems,
+      submittedAnswers,
+      totalCorrect
     });
 
     return this.docToQuizForm(doc);
   }
 
   async getQuizzesByEmail(email: string): Promise<QuizForm[]> {
-    const docs = await QuizModel.find({ email }).sort({ createdAt: -1 }).exec();
+    const docs = await QuizModel
+      .find({ email })
+      .sort({ createdAt: -1 })
+      .exec();
+    
     return docs.map(doc => this.docToQuizForm(doc));
   }
 
@@ -130,8 +151,8 @@ class QuizService {
       email: doc.email,
       topic: doc.topic,
       quizItems: doc.quizItems,
+      submittedAnswers: doc.submittedAnswers,
       totalCorrect: doc.totalCorrect ?? 0,
-      aiMetadata: doc.aiMetadata,
       createdAt: doc.createdAt?.toISOString(),
       updatedAt: doc.updatedAt?.toISOString()
     });

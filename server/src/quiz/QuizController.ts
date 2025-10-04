@@ -7,13 +7,13 @@ const GenerateInputZ = z.object({
   topic: z.string().min(1) 
 });
 
-const GradeInputZ = z.object({
+const GradeInputZ = z.object({ 
   email: z.string().email(),
   topic: z.string().min(1),
   quizItems: z.array(z.any()),
-  answers: z.array(z.object({ 
-    id: z.string(), 
-    selectedAnswerId: z.string() 
+  submittedAnswers: z.array(z.object({ 
+    questionId: z.string(),
+    selectedAnswerIds: z.array(z.string()).min(1)
   })) 
 });
 
@@ -29,8 +29,8 @@ class QuizController {
 
   @Post('grade')
   async grade(@Body() body: any) {
-    const { email, topic, quizItems, answers } = GradeInputZ.parse(body);
-    return this.service.gradeQuiz(email, topic, quizItems, answers);
+    const { email, topic, quizItems, submittedAnswers } = GradeInputZ.parse(body);
+    return this.service.gradeQuiz(email, topic, quizItems, submittedAnswers);
   }
 
   @Get('list')
