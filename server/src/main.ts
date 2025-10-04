@@ -22,6 +22,15 @@ async function bootstrap() {
   }
 
   const app = await NestFactory.create(MainModule);
+  
+  // Enable CORS for React Native web client
+  app.enableCors({
+    origin: true, // Allow all origins in development
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  });
+  
   const configService = app.get(ConfigService);
   const port = Number(configService.get<number>('PORT') || 3000);
   await app.listen(port);
