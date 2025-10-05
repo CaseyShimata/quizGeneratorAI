@@ -29,6 +29,17 @@ a quiz->question->answer would really hurt us for querys in the long run so you 
 and this is only needed to run as a tool rather than a persistent server
 - Speed as we scale. Go complies to machine code instead of being interprited at run time so it is significantly faster than NodeJS
 
+
+4) Future (out of scope)
+- Add auth for requests
+- Add error handling
+- Add logging layer
+- Add EndToEnd tests for endpoints
+- Add unit tests for services
+- Encrypt .env file and make it environment specific
+- Add Devops layer (Pipeline, Terraform, Kubernetes, RDS)
+- Change ScrollView to FlatList for history
+
 ### Initial planning google doc:
 https://docs.google.com/document/d/1uMG6pRVRcuOuW_OXv0An5mitHJ74Z9nJeDiH2b2XKmU/edit?tab=t.0#heading=h.n4sven8r9r19
 
