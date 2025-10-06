@@ -53,7 +53,8 @@ https://docs.google.com/document/d/1uMG6pRVRcuOuW_OXv0An5mitHJ74Z9nJeDiH2b2XKmU/
 
 
 # Server app
-
+cd server
+yarn install
 yarn start:debug
 
 ### .env
@@ -61,7 +62,9 @@ Be sure to add your OpenAi API key to the .env file in server app
 
 
 # Client app
-
+cd client
+yarn add expo
+npx expo install --fix
 npx expo start
 
 ### dependencies
