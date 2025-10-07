@@ -40,7 +40,11 @@ and this is only needed to run as a tool rather than a persistent server
 - Encrypt .env file and make it environment specific
 - Add Devops layer (Pipeline, Terraform, Kubernetes, RDS)
 - Change ScrollView to FlatList for history
-- Modularize the functions in client to be in a separate rest folder and use axios package to optimze it 
+- Modularize the functions in client to be in a separate rest folder and use axios package to optimze it
+- Move hardcoded values such as the prompt, the tempurature, the frontEnd api url into .env and into reusable 
+dynamic functions. This would allow scallability so the OpenAI call function becomes reusable by other services
+being able to pass in dynamic return structures, tempuratures, role, prompts.. I could build a library of 
+prompts, roles, responseFormats and contexts.
 
 ### Initial planning google doc:
 https://docs.google.com/document/d/1uMG6pRVRcuOuW_OXv0An5mitHJ74Z9nJeDiH2b2XKmU/edit?tab=t.0#heading=h.n4sven8r9r19
