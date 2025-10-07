@@ -36,7 +36,7 @@ class GenerateQuizService {
     const completion = await this.client.chat.completions.create({
       model: this.model,
       messages,
-      temperature: 0.7,
+      temperature: 0.2,
       response_format: { type: 'json_schema', json_schema: this.generationSchema }
     });
 
