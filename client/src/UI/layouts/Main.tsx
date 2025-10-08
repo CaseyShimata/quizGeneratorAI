@@ -138,6 +138,7 @@ export default function Main() {
                     <QuizDisplay
                         quiz={submittedQuiz.quiz}
                         totalCorrect={submittedQuiz.totalCorrect}
+                        selectedAnswers={submittedQuiz.questionsSelectedAnswers}
                     />
                 )}
 
@@ -147,6 +148,7 @@ export default function Main() {
                         key={idx}
                         quiz={userQuiz.quiz}
                         totalCorrect={userQuiz.totalCorrect}
+                        selectedAnswers={userQuiz.questionsSelectedAnswers}
                     />
                 ))}
             </ScrollView>

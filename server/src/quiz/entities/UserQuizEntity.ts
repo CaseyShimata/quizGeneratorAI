@@ -28,7 +28,7 @@ class UserQuiz {
   public quiz!: Quiz;
 
   @prop({ type: () => [QuestionSelectedAnswers], required: true })
-  public questionSelectedAnswers!: QuestionSelectedAnswers[];
+  public questionsSelectedAnswers!: QuestionSelectedAnswers[];
 
   @prop({ default: 0 })
   public totalCorrect!: number;
