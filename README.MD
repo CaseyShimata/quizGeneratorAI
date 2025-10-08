@@ -22,16 +22,17 @@ it made sense to refresh on Document based database
 composition makes building things that are complex yet modular so clean and quick
 
 3) Tradeoffs to chosen architecture and approach
-- MongoDB doesn't enforce normalization and typically it is used for when data will be often changing and we want less 
+- MongoDB doesn't enforce normalization and typically it is used for when data will change often and we want less 
 hops for faster fetching, but I still needed to use relationships because stuffing an array of emails into isSelected for 
-a quiz->question->answer would really hurt us for querys in the long run so you still have to be smart about your db architecture
+a quiz->question->answer would really hurt us for queries in the long run so you still have to be smart about your db architecture
 - Costs: other databases like DynamoDB and going serverless can save a ton if the complex abilities on mongodb aren't needed 
 and this is only needed to run as a tool rather than a persistent server
-- Speed as we scale. Go complies to machine code instead of being interprited at run time so it is significantly faster than NodeJS
-
+- Speed as we scale. Go complies to machine code instead of being interpreted at run time so it is significantly faster than NodeJS
+- Typegoose is slow at scale due to runtime reflection. Modern Mongoose allows TypeScript to infer types directly from the schema.
 
 4) Future (out of scope)
 - Add auth for requests
+- Change out TypeGoose for modern mongoose type inference from schema
 - Add error handling
 - Add more docblocks to the complex pieces in my server services and to my functions in client
 - Add logging layer

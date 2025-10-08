@@ -41,3 +41,28 @@ class UserQuiz {
 const UserQuizModel = getModelForClass(UserQuiz);
 
 export { UserQuiz, UserQuizModel };
+
+
+//TODO: switch out all TypeGoose with modern type inference available as utility in modern mongoose package
+
+// const userQuizSchema = new Schema({
+//     email: { type: String, required: true },
+//     // Embed the sub-document schema directly
+//     quiz: { type: quizSchema, required: true },
+//     // Embed the array of sub-document schemas directly
+//     questionSelectedAnswers: {
+//         type: [questionSelectedAnswersSchema],
+//         required: true,
+//     },
+//     totalCorrect: { type: Number, default: 0 },
+// }, {
+//     collection: 'userquizzes',
+//     timestamps: true,
+//     strict: false, // For `allowMixed: Severity.ALLOW`
+// });
+//
+// // Infer the plain document type from the schema
+// type IUserQuiz = InferSchemaType<typeof userQuizSchema>;
+//
+// // Infer the full hydrated document type and create the model
+// const UserQuizModel = model<IUserQuiz>('UserQuiz', userQuizSchema);
