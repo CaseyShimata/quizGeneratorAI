@@ -13,7 +13,7 @@ const GradeInputZ = z.object({
     topic: z.string().min(1),
     quizItems: z.array(z.any()) // Accept any structure, validated by Typegoose
   }),
-  questionSelectedAnswers: z.array(z.object({ 
+  questionsSelectedAnswers: z.array(z.object({
     questionId: z.string(),
     selectedAnswerIds: z.array(z.string()).min(1)
   }))
@@ -25,8 +25,8 @@ class GradeQuizController {
 
   @Post('grade')
   async grade(@Body() body: any) {
-    const { email, quiz, questionSelectedAnswers } = GradeInputZ.parse(body);
-    return this.service.execute(email, quiz, questionSelectedAnswers);
+    const { email, quiz, questionsSelectedAnswers } = GradeInputZ.parse(body);
+    return this.service.execute(email, quiz, questionsSelectedAnswers);
   }
 }
 

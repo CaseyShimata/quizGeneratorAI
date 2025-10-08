@@ -41,7 +41,7 @@ export default function Main() {
         if (!activeQuiz) return;
 
         setLoading(true);
-        const answers: QuestionSelectedAnswers[] = Array.from(selectedAnswers.entries()).map(
+        const questionsSelectedAnswers: QuestionSelectedAnswers[] = Array.from(selectedAnswers.entries()).map(
             ([questionId, answerIds]) => ({
                 questionId,
                 selectedAnswerIds: Array.from(answerIds)
@@ -52,7 +52,7 @@ export default function Main() {
             const res = await fetch(`${API_BASE_URL}/quiz/grade`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({email, quiz: activeQuiz, questionSelectedAnswers: answers}),
+                body: JSON.stringify({email, quiz: activeQuiz, questionsSelectedAnswers: questionsSelectedAnswers}),
             });
             const result = await res.json();
             setSubmittedQuiz(result);

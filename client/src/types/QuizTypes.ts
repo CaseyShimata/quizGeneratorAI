@@ -30,7 +30,7 @@ export interface QuestionSelectedAnswers {
 export interface UserQuiz {
   email: string;
   quiz: Quiz;
-  questionSelectedAnswers: QuestionSelectedAnswers[];
+  questionsSelectedAnswers: QuestionSelectedAnswers[];
   totalCorrect: number;
   createdAt?: Date;
   updatedAt?: Date;
