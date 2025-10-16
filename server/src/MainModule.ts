@@ -1,18 +1,18 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
-import { MongooseModule } from '@nestjs/mongoose';
+import { ConfigModule } from './config/ConfigModule.js';
+import { DatabaseModule } from './database/DatabaseModule.js';
+import { SwaggerModule } from './swagger/SwaggerModule.js';
+import { OpenAIModule } from './openai/OpenAIModule.js';
+import { IntelligentQueryModule } from './intelligentQuery/IntelligentQueryModule.js';
 import { QuizModule } from './quiz/QuizModule.js';
-import { mainConfig } from './mainConfig.js';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({isGlobal: true, load: [mainConfig] }),
-    MongooseModule.forRoot(process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/quizdb', {
-          serverSelectionTimeoutMS: 5000,
-          socketTimeoutMS: 30000,
-          maxPoolSize: 10,
-          bufferCommands: false
-    }),
+    ConfigModule,
+    DatabaseModule,
+    SwaggerModule,
+    OpenAIModule,
+    IntelligentQueryModule,
     QuizModule
   ],
 })

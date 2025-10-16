@@ -1,56 +1,48 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import OpenAI from 'openai';
-import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import { Quiz } from '../entities/index.js';
 import { OpenAIQuizGenerationSchema } from '../schemas/OpenAIQuizGenerationSchema.js';
+import { OpenAIService } from '../../openai/services/OpenAIService.js';
+import { PromptBuilder } from '../../openai/utils/promptBuilder.js';
 
 /**
  * Generate Quiz Service
- * Handles quiz generation using OpenAI's structured output API.
+ * Handles quiz generation using shared OpenAI service
  */
 @Injectable()
 class GenerateQuizService {
-  private client: OpenAI;
-  private model: string;
-  private generationSchema: any;
+  private readonly generationSchema: any;
 
-  constructor(configService: ConfigService) {
-    this.client = new OpenAI({ apiKey: configService.get<string>('OPENAI_API_KEY') });
-    this.model = configService.get<string>('OPENAI_MODEL') || 'gpt-4o-mini';
+  constructor(private readonly openAIService: OpenAIService) {
     this.generationSchema = OpenAIQuizGenerationSchema;
   }
 
   async execute(email: string, topic: string): Promise<{ email: string; quiz: Quiz }> {
-    const messages: ChatCompletionMessageParam[] = [
-      { 
-        role: 'system', 
-        content: 'Generate a quiz matching the schema. Return only valid JSON.' 
-      },
-      { 
-        role: 'user', 
-        content: `Generate a quiz about "${topic}" with 5 questions, 4 answers each, one correct answer per question, with brief explanations.` 
-      }
-    ];
+    const systemPrompt = PromptBuilder.buildSystemPrompt(
+      'You are a quiz generation assistant. Create educational quizzes based on user-provided topics',
+      this.generationSchema
+    );
 
-    const completion = await this.client.chat.completions.create({
-      model: this.model,
-      messages,
-      temperature: 0.2,
-      response_format: { type: 'json_schema', json_schema: this.generationSchema }
-    });
+    const userPrompt = `Create a quiz about "${topic}" with 5 questions, 4 answers each, exactly one correct answer per question, with brief explanations for each answer.`;
 
-    const message = completion.choices[0].message;
-    const parsed = (message as any).parsed || JSON.parse(message.content || '{}');
-    if (!parsed) throw new InternalServerErrorException('AI returned no data');
+    const messages = PromptBuilder.buildMessages(systemPrompt, userPrompt);
 
-    return {
-      email,
-      quiz: {
-        topic: parsed.topic,
-        quizItems: parsed.quizItems
-      }
-    };
+    try {
+      const parsed = await this.openAIService.createStructuredCompletion<any>(
+        messages,
+        this.generationSchema,
+        { temperature: 0.2 }
+      );
+
+      return {
+        email,
+        quiz: {
+          topic: parsed.topic,
+          quizItems: parsed.quizItems
+        }
+      };
+    } catch (error) {
+      throw new InternalServerErrorException('Failed to generate quiz', error);
+    }
   }
 }
 

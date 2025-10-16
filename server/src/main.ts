@@ -1,40 +1,19 @@
 import 'reflect-metadata';
-import { NestFactory } from '@nestjs/core';
-import { MainModule } from './MainModule.js';
-import { ConfigService } from '@nestjs/config';
-import mongoose from 'mongoose';
+import {NestFactory} from '@nestjs/core';
+import {MainModule} from './MainModule.js';
+import {AppConfigService} from './config/services/AppConfigService.js';
+import {setupSwagger} from './swagger/helpers/setupSwagger.js';
 
 async function bootstrap() {
-  const mongoUri = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/quizdb';
-  console.log('Connecting to MongoDB (blocking) at', mongoUri);
 
-  try {
-    await mongoose.connect(mongoUri, {
-      serverSelectionTimeoutMS: 5000,
-      socketTimeoutMS: 30000,
-      maxPoolSize: 10,
-      bufferCommands: false
-    } as any);
-    console.log('MongoDB connected (readyState):', (mongoose as any).connection?.readyState);
-  } catch (err) {
-    console.error('Failed to connect to MongoDB before app start', err);
-    process.exit(1);
-  }
+    const app = await NestFactory.create(MainModule);
+    const appConfigService = app.get(AppConfigService);
+    appConfigService.applyCors(app);
+    const port = appConfigService.getPort();
 
-  const app = await NestFactory.create(MainModule);
-  
-  // Enable CORS for React Native web client
-  app.enableCors({
-    origin: true, // Allow all origins in development
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-  });
-  
-  const configService = app.get(ConfigService);
-  const port = Number(configService.get<number>('PORT') || 3000);
-  await app.listen(port);
-  console.log(`App listening on ${port}`);
+    await setupSwagger(app);
+    await app.listen(port);
+    console.log(`App listening on ${port}`);
 }
 
 bootstrap();

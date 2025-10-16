@@ -34,7 +34,8 @@ and this is only needed to run as a tool rather than a persistent server
 - Add auth for requests
 - Change out TypeGoose for modern mongoose type inference from schema
 - Remove the redundant allowMultipleSelections .. it is assumed for future scalability if isCorrect is on multiple 
-answers we allow multi selection. Add front end validation as well though this was not a frontend focused interview project
+answers we allow multi selection. 
+- Add front end validation.
 - Handle for duplicate topics using a lookup of user quiz but really a lookup and a fetch of an existing quiz before reaching out to AI.
 - Add error handling
 - Add more docblocks to the complex pieces in my server services and to my functions in client
