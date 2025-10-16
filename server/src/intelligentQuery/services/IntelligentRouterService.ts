@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { PORT } from '../../config/constants.js';
 import { OpenAIService } from '../../openai/services/OpenAIService.js';
 import { SwaggerDocsService } from '../../swagger/services/SwaggerDocsService.js';
 import { PromptBuilder } from '../../openai/utils/promptBuilder.js';
@@ -15,11 +15,9 @@ export class IntelligentRouterService {
 
   constructor(
     private readonly openAIService: OpenAIService,
-    private readonly swaggerDocsService: SwaggerDocsService,
-    private readonly configService: ConfigService
+    private readonly swaggerDocsService: SwaggerDocsService
   ) {
-    const port = this.configService.get<number>('PORT') || 3000;
-    this.baseUrl = `http://localhost:${port}`;
+    this.baseUrl = `http://localhost:${PORT}`;
   }
 
   /**

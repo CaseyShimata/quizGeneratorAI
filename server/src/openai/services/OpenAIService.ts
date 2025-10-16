@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { OPENAI_API_KEY, OPENAI_MODEL } from '../../config/constants.js';
 import OpenAI from 'openai';
 import type { 
   ChatCompletionMessageParam,
@@ -15,11 +15,11 @@ export class OpenAIService {
   private readonly client: OpenAI;
   private readonly defaultModel: string;
 
-  constructor(private readonly configService: ConfigService) {
+  constructor() {
     this.client = new OpenAI({ 
-      apiKey: this.configService.get<string>('OPENAI_API_KEY') 
+      apiKey: OPENAI_API_KEY 
     });
-    this.defaultModel = this.configService.get<string>('OPENAI_MODEL') || 'gpt-4o-mini';
+    this.defaultModel = OPENAI_MODEL;
   }
 
   /**
