@@ -1,16 +1,17 @@
-import { Body, Controller, Post, Delete, Param } from '@nestjs/common';
+import { Body, Controller, Post } from '@nestjs/common';
 import { ConversationalRouterService } from '../services/ConversationalRouterService.js';
 import { z } from 'zod';
-import { ApiBody, ApiOperation, ApiParam } from "@nestjs/swagger";
+import { ApiBody, ApiOperation } from "@nestjs/swagger";
 
 /**
  * Intelligent Query Controller
  * Handles conversational natural language queries with multi-turn support
+ * Uses email for conversation tracking with automatic history truncation
  */
 
 const ConversationalQueryInputZ = z.object({
-  message: z.string().min(1, 'Message cannot be empty'),
-  conversationId: z.string().optional()
+  email: z.string().email('Valid email required'),
+  message: z.string().min(1, 'Message cannot be empty')
 });
 
 @Controller('api')
@@ -22,6 +23,7 @@ export class IntelligentQueryController {
   /**
    * Process a conversational query
    * Supports multi-turn conversations with parameter collection
+   * Conversation history is tracked per email address
    * 
    * Examples:
    * - "What can I do?" → Lists available endpoints
@@ -35,51 +37,35 @@ export class IntelligentQueryController {
     - Help you discover what endpoints are available
     - Guide you through providing required parameters
     - Execute API calls when it has all needed information
-    - Remember context across multiple messages in the same conversation`
+    - Remember context per email address (auto-truncates after 20 messages)`
   })
   @ApiBody({
     schema: {
       type: 'object',
-      required: ['message'],
+      required: ['email', 'message'],
       properties: {
+        email: { 
+          type: 'string', 
+          format: 'email',
+          example: 'user@example.com',
+          description: 'Your email address (used to track conversation)'
+        },
         message: { 
           type: 'string', 
           example: 'What can I do?',
           description: 'Your natural language message or question'
-        },
-        conversationId: { 
-          type: 'string', 
-          example: 'uuid-here',
-          description: 'Optional: Include this to continue an existing conversation'
         }
       }
     }
   })
   async processConversationalQuery(@Body() body: any) {
-    const { message, conversationId } = ConversationalQueryInputZ.parse(body);
+    const { email, message } = ConversationalQueryInputZ.parse(body);
     
     const result = await this.conversationalRouterService.processConversationalQuery(
-      message,
-      conversationId
+      email,
+      message
     );
     
     return result;
-  }
-
-  /**
-   * Clear a conversation
-   */
-  @Delete('intelligent-query/:conversationId')
-  @ApiOperation({
-    summary: 'Clear conversation history',
-    description: 'Delete a conversation and its history'
-  })
-  @ApiParam({
-    name: 'conversationId',
-    description: 'The conversation ID to clear'
-  })
-  async clearConversation(@Param('conversationId') conversationId: string) {
-    this.conversationalRouterService.clearConversation(conversationId);
-    return { message: 'Conversation cleared' };
   }
 }

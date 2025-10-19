@@ -1,13 +1,13 @@
-import {Injectable} from '@nestjs/common';
-import {IntelligentRouterService} from './IntelligentRouterService.js';
-import {ConversationService} from './ConversationService.js';
-import {SwaggerDocsService} from '../../swagger/services/SwaggerDocsService.js';
-import {OpenAIService} from '../../openai/services/OpenAIService.js';
-import {v4 as uuidv4} from 'uuid';
+import { Injectable } from '@nestjs/common';
+import { IntelligentRouterService } from './IntelligentRouterService.js';
+import { ConversationService } from './ConversationService.js';
+import { SwaggerDocsService } from '../../swagger/services/SwaggerDocsService.js';
+import { OpenAIService } from '../../openai/services/OpenAIService.js';
 
 /**
  * Conversational Router Service
  * Handles multi-turn conversations with parameter collection
+ * Uses email as conversation identifier with auto-truncation
  */
 @Injectable()
 export class ConversationalRouterService {
@@ -16,35 +16,32 @@ export class ConversationalRouterService {
         private readonly conversationService: ConversationService,
         private readonly swaggerDocsService: SwaggerDocsService,
         private readonly openAIService: OpenAIService
-    ) {
-    }
+    ) {}
 
     /**
      * Process a conversational query
      */
     async processConversationalQuery(
-        userMessage: string,
-        conversationId?: string
+        email: string,
+        userMessage: string
     ): Promise<any> {
-        // Create or get conversation ID
-        const convId = conversationId || uuidv4();
-        const conversation = this.conversationService.getConversation(convId);
+        const conversation = this.conversationService.getConversation(email);
 
-        // Add user message to history
-        this.conversationService.addMessage(convId, 'user', userMessage);
+        // Add user message to history (auto-truncates if needed)
+        this.conversationService.addMessage(email, 'user', userMessage);
 
         // Check if we have a pending function awaiting parameters
         if (conversation.pendingFunction) {
-            return await this.handlePendingFunction(convId, userMessage);
+            return await this.handlePendingFunction(email, userMessage);
         }
 
         // Check for help/general queries
         if (this.isHelpQuery(userMessage)) {
-            return this.handleHelpQuery(convId);
+            return this.handleHelpQuery(email);
         }
 
         // Try to route the request
-        return await this.routeWithParameterCollection(convId, userMessage);
+        return await this.routeWithParameterCollection(email, userMessage);
     }
 
     /**
@@ -59,14 +56,14 @@ export class ConversationalRouterService {
     /**
      * Handle help queries
      */
-    private handleHelpQuery(conversationId: string): any {
+    private handleHelpQuery(email: string): any {
         const endpoints = this.swaggerDocsService.getEndpointsDescription();
         const response = `I can help you with the following:\n\n${endpoints}\n\nWhat would you like to do?`;
 
-        this.conversationService.addMessage(conversationId, 'assistant', response);
+        this.conversationService.addMessage(email, 'assistant', response);
 
         return {
-            conversationId,
+            email,
             message: response,
             needsMoreInfo: false
         };
@@ -76,10 +73,10 @@ export class ConversationalRouterService {
      * Route request with parameter collection
      */
     private async routeWithParameterCollection(
-        conversationId: string,
+        email: string,
         userMessage: string
     ): Promise<any> {
-        const history = this.conversationService.getHistory(conversationId);
+        const history = this.conversationService.getHistory(email);
 
         // Build system prompt for conversational AI
         const systemPrompt = `You are a helpful AI assistant for a Quiz Generator API.
@@ -99,7 +96,7 @@ ${this.swaggerDocsService.getEndpointsDescription()}
 - Only call functions when you have ALL required parameters`;
 
         const messages = [
-            {role: 'system' as const, content: systemPrompt},
+            { role: 'system' as const, content: systemPrompt },
             ...history
         ];
 
@@ -110,7 +107,7 @@ ${this.swaggerDocsService.getEndpointsDescription()}
         const response = await this.openAIService.createFunctionCallingCompletion(
             messages,
             tools,
-            {temperature: 0.7}
+            { temperature: 0.7 }
         );
 
         // Check if AI wants to call a function
@@ -128,17 +125,17 @@ ${this.swaggerDocsService.getEndpointsDescription()}
                 if (missingParams.length > 0) {
                     // Save pending function state
                     this.conversationService.setPendingFunction(
-                        conversationId,
+                        email,
                         functionName,
                         functionArgs,
                         missingParams
                     );
 
                     const promptMessage = `To ${this.getFriendlyFunctionName(functionName)}, I need: ${missingParams.join(', ')}. Please provide the ${missingParams[0]}.`;
-                    this.conversationService.addMessage(conversationId, 'assistant', promptMessage);
+                    this.conversationService.addMessage(email, 'assistant', promptMessage);
 
                     return {
-                        conversationId,
+                        email,
                         message: promptMessage,
                         needsMoreInfo: true,
                         pendingFunction: functionName,
@@ -155,21 +152,21 @@ ${this.swaggerDocsService.getEndpointsDescription()}
                     );
 
                     const successMessage = `Done! Here's the result:`;
-                    this.conversationService.addMessage(conversationId, 'assistant', successMessage);
-                    this.conversationService.clearPendingFunction(conversationId);
+                    this.conversationService.addMessage(email, 'assistant', successMessage);
+                    this.conversationService.clearPendingFunction(email);
 
                     return {
-                        conversationId,
+                        email,
                         message: successMessage,
                         result,
                         needsMoreInfo: false
                     };
                 } catch (error: any) {
                     const errorMessage = `Sorry, I encountered an error: ${error.message}`;
-                    this.conversationService.addMessage(conversationId, 'assistant', errorMessage);
+                    this.conversationService.addMessage(email, 'assistant', errorMessage);
 
                     return {
-                        conversationId,
+                        email,
                         message: errorMessage,
                         error: error.message,
                         needsMoreInfo: false
@@ -180,10 +177,10 @@ ${this.swaggerDocsService.getEndpointsDescription()}
 
         // No function call - just return the message
         const message = response.content || 'How can I help you?';
-        this.conversationService.addMessage(conversationId, 'assistant', message);
+        this.conversationService.addMessage(email, 'assistant', message);
 
         return {
-            conversationId,
+            email,
             message,
             needsMoreInfo: false
         };
@@ -193,14 +190,13 @@ ${this.swaggerDocsService.getEndpointsDescription()}
      * Handle responses to pending function
      */
     private async handlePendingFunction(
-        conversationId: string,
+        email: string,
         userMessage: string
     ): Promise<any> {
-        const conversation = this.conversationService.getConversation(conversationId);
+        const conversation = this.conversationService.getConversation(email);
         const pending = conversation.pendingFunction!;
 
         // Try to extract the missing parameter from user's response
-        // For now, assume the user's message is the value for the first missing param
         const paramName = pending.missingParams[0];
         pending.collectedParams[paramName] = userMessage;
         pending.missingParams.shift();
@@ -208,17 +204,17 @@ ${this.swaggerDocsService.getEndpointsDescription()}
         // Check if we still need more params
         if (pending.missingParams.length > 0) {
             const promptMessage = `Got it! Now I need the ${pending.missingParams[0]}.`;
-            this.conversationService.addMessage(conversationId, 'assistant', promptMessage);
+            this.conversationService.addMessage(email, 'assistant', promptMessage);
 
             this.conversationService.setPendingFunction(
-                conversationId,
+                email,
                 pending.name,
                 pending.collectedParams,
                 pending.missingParams
             );
 
             return {
-                conversationId,
+                email,
                 message: promptMessage,
                 needsMoreInfo: true,
                 pendingFunction: pending.name,
@@ -237,22 +233,22 @@ ${this.swaggerDocsService.getEndpointsDescription()}
             );
 
             const successMessage = `Perfect! Here's what I found:`;
-            this.conversationService.addMessage(conversationId, 'assistant', successMessage);
-            this.conversationService.clearPendingFunction(conversationId);
+            this.conversationService.addMessage(email, 'assistant', successMessage);
+            this.conversationService.clearPendingFunction(email);
 
             return {
-                conversationId,
+                email,
                 message: successMessage,
                 result,
                 needsMoreInfo: false
             };
         } catch (error: any) {
             const errorMessage = `Sorry, I encountered an error: ${error.message}`;
-            this.conversationService.addMessage(conversationId, 'assistant', errorMessage);
-            this.conversationService.clearPendingFunction(conversationId);
+            this.conversationService.addMessage(email, 'assistant', errorMessage);
+            this.conversationService.clearPendingFunction(email);
 
             return {
-                conversationId,
+                email,
                 message: errorMessage,
                 error: error.message,
                 needsMoreInfo: false
@@ -281,12 +277,5 @@ ${this.swaggerDocsService.getEndpointsDescription()}
             .replace(/_/g, ' ')
             .replace(/^(GET|POST|PUT|DELETE|PATCH) /, '')
             .toLowerCase();
-    }
-
-    /**
-     * Clear a conversation
-     */
-    clearConversation(conversationId: string): void {
-        this.conversationService.clearConversation(conversationId);
     }
 }

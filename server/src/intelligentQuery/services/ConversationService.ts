@@ -2,11 +2,12 @@ import { Injectable } from '@nestjs/common';
 
 /**
  * Conversation Service
- * Manages conversation state and history for multi-turn interactions
+ * Manages conversation state and history per email address
+ * Auto-truncates when approaching context window limits
  */
 
 interface ConversationState {
-  conversationId: string;
+  email: string;
   history: Array<{ role: 'user' | 'assistant'; content: string }>;
   pendingFunction?: {
     name: string;
@@ -20,67 +21,88 @@ interface ConversationState {
 export class ConversationService {
   private conversations: Map<string, ConversationState> = new Map();
   private readonly TTL = 30 * 60 * 1000; // 30 minutes
+  private readonly MAX_HISTORY_MESSAGES = 20; // Keep last 20 messages (10 turns)
+  private readonly APPROXIMATE_TOKENS_PER_MESSAGE = 100; // Rough estimate
+  private readonly MAX_CONTEXT_TOKENS = 8000; // Leave room for system prompt + response
 
   /**
-   * Get or create a conversation
+   * Get or create a conversation for an email
    */
-  getConversation(conversationId: string): ConversationState {
+  getConversation(email: string): ConversationState {
     this.cleanupExpired();
     
-    if (!this.conversations.has(conversationId)) {
-      this.conversations.set(conversationId, {
-        conversationId,
+    if (!this.conversations.has(email)) {
+      this.conversations.set(email, {
+        email,
         history: [],
         lastUpdate: new Date()
       });
     }
     
-    const conv = this.conversations.get(conversationId)!;
+    const conv = this.conversations.get(email)!;
     conv.lastUpdate = new Date();
     return conv;
   }
 
   /**
-   * Add message to conversation history
+   * Add message to conversation history with auto-truncation
    */
-  addMessage(conversationId: string, role: 'user' | 'assistant', content: string): void {
-    const conv = this.getConversation(conversationId);
+  addMessage(email: string, role: 'user' | 'assistant', content: string): void {
+    const conv = this.getConversation(email);
     conv.history.push({ role, content });
+    
+    // Auto-truncate if needed
+    this.truncateIfNeeded(email);
+  }
+
+  /**
+   * Truncate conversation history if it's getting too long
+   */
+  private truncateIfNeeded(email: string): void {
+    const conv = this.conversations.get(email);
+    if (!conv) return;
+
+    // If history exceeds max messages, keep only the most recent ones
+    if (conv.history.length > this.MAX_HISTORY_MESSAGES) {
+      // Keep the last MAX_HISTORY_MESSAGES messages
+      conv.history = conv.history.slice(-this.MAX_HISTORY_MESSAGES);
+    }
+
+    // Estimate token count and truncate if needed
+    const estimatedTokens = conv.history.length * this.APPROXIMATE_TOKENS_PER_MESSAGE;
+    if (estimatedTokens > this.MAX_CONTEXT_TOKENS) {
+      // Remove oldest messages until we're under the limit
+      const messagesToRemove = Math.ceil((estimatedTokens - this.MAX_CONTEXT_TOKENS) / this.APPROXIMATE_TOKENS_PER_MESSAGE);
+      conv.history = conv.history.slice(messagesToRemove);
+    }
   }
 
   /**
    * Set pending function state
    */
   setPendingFunction(
-    conversationId: string,
+    email: string,
     functionName: string,
     collectedParams: Record<string, any>,
     missingParams: string[]
   ): void {
-    const conv = this.getConversation(conversationId);
+    const conv = this.getConversation(email);
     conv.pendingFunction = { name: functionName, collectedParams, missingParams };
   }
 
   /**
    * Clear pending function
    */
-  clearPendingFunction(conversationId: string): void {
-    const conv = this.getConversation(conversationId);
+  clearPendingFunction(email: string): void {
+    const conv = this.getConversation(email);
     delete conv.pendingFunction;
   }
 
   /**
    * Get conversation history as messages
    */
-  getHistory(conversationId: string): Array<{ role: 'user' | 'assistant'; content: string }> {
-    return this.getConversation(conversationId).history;
-  }
-
-  /**
-   * Clear a conversation
-   */
-  clearConversation(conversationId: string): void {
-    this.conversations.delete(conversationId);
+  getHistory(email: string): Array<{ role: 'user' | 'assistant'; content: string }> {
+    return this.getConversation(email).history;
   }
 
   /**
@@ -88,9 +110,9 @@ export class ConversationService {
    */
   private cleanupExpired(): void {
     const now = new Date();
-    for (const [id, conv] of this.conversations.entries()) {
+    for (const [email, conv] of this.conversations.entries()) {
       if (now.getTime() - conv.lastUpdate.getTime() > this.TTL) {
-        this.conversations.delete(id);
+        this.conversations.delete(email);
       }
     }
   }
