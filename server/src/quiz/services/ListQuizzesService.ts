@@ -8,24 +8,48 @@ import { UserQuizModel, UserQuiz } from '../entities/index.js';
 @Injectable()
 class ListQuizzesService {
   /**
-   * Execute query with regex support
+   * Execute query with regex support and common list options
    * Works for both exact emails and partial patterns
    * @param emailPattern - Email or pattern to search for
-   * @param limit - Optional limit on number of results
+   * @param limit - Optional limit on number of results (deprecated; prefer options.limit)
+   * @param options - Optional list options (offset, sortBy, sortDir, filters)
    */
-  async execute(emailPattern: string, limit?: number): Promise<UserQuiz[]> {
-    let query = UserQuizModel
-      .find({ 
-        email: { $regex: emailPattern, $options: 'i' } 
-      })
-      .sort({ createdAt: -1 });
-    
-    if (limit && limit > 0) {
-      query = query.limit(limit);
+  async execute(
+    emailPattern: string,
+    limit?: number,
+    options?: {
+      offset?: number;
+      sortBy?: string;
+      sortDir?: 'asc' | 'desc';
+      filters?: Record<string, any>;
+      limit?: number; // allow specifying via options
     }
-    
+  ): Promise<UserQuiz[]> {
+    // Build base filter with email regex, merge with provided filters (AND)
+    const baseFilter: Record<string, any> = {
+      email: { $regex: emailPattern, $options: 'i' }
+    };
+
+    const mergedFilter = {
+      ...baseFilter,
+      ...(options?.filters ?? {})
+    };
+
+    let query = UserQuizModel
+      .find(mergedFilter)
+      .sort({ [options?.sortBy || 'createdAt']: (options?.sortDir || 'desc') === 'asc' ? 1 : -1 });
+
+    const finalLimit = options?.limit ?? limit;
+    if (finalLimit && finalLimit > 0) {
+      query = query.limit(finalLimit);
+    }
+
+    if (options?.offset && options.offset > 0) {
+      query = query.skip(options.offset);
+    }
+
     const docs = await query.lean().exec();
-    
+
     return docs as UserQuiz[];
   }
 }

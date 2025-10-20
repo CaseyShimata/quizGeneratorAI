@@ -1,6 +1,7 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
 import { SwaggerModule } from '@nestjs/swagger';
+import { ToolBuilder, OpenAITool } from '../../openai/tools/ToolBuilder.js';
 
 /**
  * Swagger Documentation Service
@@ -22,137 +23,72 @@ export class SwaggerDocsService {
   }
 
   /**
-   * Get Swagger document in OpenAI function calling format
+   * Expose the raw Swagger document
    */
-  getToolsFromSwagger(): any[] {
+  getSwaggerDocument(): any | null {
+    return this.swaggerDocument;
+  }
+
+  /**
+   * Get tools (OpenAI function format) constructed dynamically from Swagger
+   */
+  getToolsFromSwagger(): OpenAITool[] {
     if (!this.swaggerDocument || !this.swaggerDocument.paths) {
       return [];
     }
 
-    const tools: any[] = [];
-
-    // Iterate through all paths in the Swagger doc
+    // Build an allowlist of tool names derived from paths, excluding conversational/AI control endpoints
+    const allowedNames = new Set<string>();
     for (const [path, methods] of Object.entries(this.swaggerDocument.paths)) {
-      for (const [method, details] of Object.entries(methods as Record<string, any>)) {
-        // Skip non-HTTP methods and the /api/ai endpoints (avoid recursion)
-        if (!['get', 'post', 'put', 'delete', 'patch'].includes(method.toLowerCase()) ||
-            path.startsWith('/api/ai')) {
-          continue;
-        }
+      // Exclude the conversational endpoint to prevent recursive self-calls
+      const lowerPath = String(path).toLowerCase();
+      if (lowerPath.includes('/intelligent-query')) {
+        continue;
+      }
 
-        const operation = details as any;
-        
-        // Build parameters schema
-        const parameters: any = {
-          type: 'object',
-          properties: {},
-          required: []
-        };
-
-        // Add query parameters
-        if (operation.parameters) {
-          operation.parameters.forEach((param: any) => {
-            if (param.in === 'query') {
-              const paramSchema = this.simplifySchema(param.schema);
-              if (paramSchema) {
-                parameters.properties[param.name] = {
-                  ...paramSchema,
-                  description: param.description || ''
-                };
-                if (param.required) {
-                  parameters.required.push(param.name);
-                }
-              }
-            }
-          });
-        }
-
-        // Add request body parameters
-        if (operation.requestBody?.content?.['application/json']?.schema) {
-          const schema = operation.requestBody.content['application/json'].schema;
-          if (schema.properties) {
-            for (const [propName, propSchema] of Object.entries(schema.properties)) {
-              const simplifiedSchema = this.simplifySchema(propSchema as any);
-              if (simplifiedSchema) {
-                parameters.properties[propName] = simplifiedSchema;
-              }
-            }
-            if (schema.required && Array.isArray(schema.required)) {
-              parameters.required.push(...schema.required.filter((r: string) => 
-                parameters.properties.hasOwnProperty(r)
-              ));
-            }
-          }
-        }
-
-        // Only create tool if it has properties
-        if (Object.keys(parameters.properties).length > 0 || method.toLowerCase() === 'get') {
-          const tool = {
-            type: 'function' as const,
-            function: {
-              name: `${method.toUpperCase()}_${path.replace(/\//g, '_').replace(/^_/, '')}`,
-              description: operation.summary || operation.description || `${method.toUpperCase()} ${path}`,
-              parameters: parameters
-            }
-          };
-
-          tools.push(tool);
-        }
+      for (const [method, op] of Object.entries(methods as Record<string, any>)) {
+        const httpMethod = method.toLowerCase();
+        if (!['get', 'post', 'put', 'delete', 'patch'].includes(httpMethod)) continue;
+        const operation = op as any;
+        const name = operation?.operationId || ToolBuilder.getOperationName(operation, method, path);
+        allowedNames.add(name);
       }
     }
+
+    const allTools = ToolBuilder.buildTools(this.swaggerDocument);
+    const tools = allTools.filter(t => allowedNames.has(t.function.name));
 
     return tools;
   }
 
   /**
-   * Simplify schema to OpenAI-compatible format
-   * Only supports: string, number, integer, boolean, array of simple types
+   * Get endpoint information for a specific tool (by operationId or legacy METHOD_path)
    */
-  private simplifySchema(schema: any): any | null {
-    if (!schema || !schema.type) {
-      return null;
-    }
+  getEndpointInfo(toolName: string): { method: string; path: string } | null {
+    if (!this.swaggerDocument || !this.swaggerDocument.paths) return null;
 
-    const type = schema.type;
-
-    // Simple types
-    if (['string', 'number', 'integer', 'boolean'].includes(type)) {
-      return {
-        type,
-        description: schema.description || ''
-      };
-    }
-
-    // Array of simple types
-    if (type === 'array' && schema.items) {
-      const itemType = schema.items.type;
-      if (['string', 'number', 'integer', 'boolean'].includes(itemType)) {
-        return {
-          type: 'array',
-          items: { type: itemType },
-          description: schema.description || ''
-        };
+    // 1) Try to match by operationId (preferred)
+    for (const [path, methods] of Object.entries(this.swaggerDocument.paths)) {
+      for (const [method, op] of Object.entries(methods as Record<string, any>)) {
+        const operation = op as any;
+        if (operation?.operationId === toolName) {
+          return { method: method.toUpperCase(), path };
+        }
       }
     }
 
-    // Skip complex types (object, record, any, etc.)
+    // 2) Fallback: compare against names ToolBuilder would generate
+    for (const [path, methods] of Object.entries(this.swaggerDocument.paths)) {
+      for (const [method, op] of Object.entries(methods as Record<string, any>)) {
+        const operation = op as any;
+        const computedName = ToolBuilder.getOperationName(operation, method, path);
+        if (computedName === toolName) {
+          return { method: method.toUpperCase(), path };
+        }
+      }
+    }
+
     return null;
-  }
-
-  /**
-   * Get endpoint information for a specific tool
-   */
-  getEndpointInfo(toolName: string): { method: string; path: string } | null {
-    // Parse tool name back to method and path
-    // Format: METHOD_path_parts
-    const match = toolName.match(/^(GET|POST|PUT|DELETE|PATCH)_(.+)$/);
-    if (!match) return null;
-
-    const method = match[1];
-    const pathParts = match[2].split('_');
-    const path = '/' + pathParts.join('/');
-
-    return { method, path };
   }
 
   /**

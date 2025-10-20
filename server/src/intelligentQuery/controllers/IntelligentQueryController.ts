@@ -1,5 +1,5 @@
 import { Body, Controller, Post } from '@nestjs/common';
-import { ConversationalRouterService } from '../services/ConversationalRouterService.js';
+import { IntelligentRouterService } from '../services/IntelligentRouterService.js';
 import { z } from 'zod';
 import { ApiBody, ApiOperation } from "@nestjs/swagger";
 
@@ -17,7 +17,7 @@ const ConversationalQueryInputZ = z.object({
 @Controller('api')
 export class IntelligentQueryController {
   constructor(
-    private readonly conversationalRouterService: ConversationalRouterService
+    private readonly intelligentRouterService: IntelligentRouterService
   ) {}
 
   /**
@@ -60,12 +60,13 @@ export class IntelligentQueryController {
   })
   async processConversationalQuery(@Body() body: any) {
     const { email, message } = ConversationalQueryInputZ.parse(body);
-    
-    const result = await this.conversationalRouterService.processConversationalQuery(
-      email,
-      message
-    );
-    
-    return result;
+
+    const resp = await this.intelligentRouterService.processRequest(message, { email });
+
+    // Normalize response to include email consistently for the client
+    if (resp && typeof resp === 'object' && !Array.isArray(resp)) {
+      return { email, ...resp };
+    }
+    return { email, message: String(resp ?? '') };
   }
 }

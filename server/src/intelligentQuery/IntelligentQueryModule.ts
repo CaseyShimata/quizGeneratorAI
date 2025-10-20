@@ -1,7 +1,5 @@
 import { Module } from '@nestjs/common';
 import { IntelligentRouterService } from './services/IntelligentRouterService.js';
-import { ConversationService } from './services/ConversationService.js';
-import { ConversationalRouterService } from './services/ConversationalRouterService.js';
 import { IntelligentQueryController } from './controllers/IntelligentQueryController.js';
 
 /**
@@ -11,13 +9,10 @@ import { IntelligentQueryController } from './controllers/IntelligentQueryContro
 @Module({
   controllers: [IntelligentQueryController],
   providers: [
-    IntelligentRouterService,
-    ConversationService,
-    ConversationalRouterService
+    IntelligentRouterService
   ],
   exports: [
-    IntelligentRouterService,
-    ConversationalRouterService
+    IntelligentRouterService
   ]
 })
 export class IntelligentQueryModule {}

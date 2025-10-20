@@ -31,11 +31,7 @@ export class IntelligentRouterService {
 - Analyze user requests and determine the most appropriate API endpoint to call
 - Extract required parameters from natural language queries
 - Always respond with function calls when applicable
-- Pay special attention to quantity words and convert them to limit parameters:
-  * "first" / "first quiz" → limit: 1
-  * "last" / "last quiz" → limit: 1
-  * "top 5" / "first 5" → limit: 5
-  * "all" / no quantity word → no limit parameter
+- Use the available tool parameter schemas (from OpenAPI) to decide pagination, filtering, and sorting parameters. Do not invent parameters that are not defined by the selected tool.
 
 **Guardrails:**
 - ONLY call functions that are explicitly defined in your available tools
@@ -128,9 +124,9 @@ Always select the most appropriate endpoint based on the user's intent.`;
   }
 
   /**
-   * Execute HTTP request to local endpoint
+   * Execute HTTP request to local endpoint (public wrapper)
    */
-  private async executeHttpRequest(
+  async executeHttpRequest(
     method: string,
     path: string,
     params: Record<string, any>
