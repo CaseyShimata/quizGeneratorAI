@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import { UserQuizModel, UserQuiz } from '../entities/index.js';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import { UserQuiz, UserQuizDocument } from '../entities/index.js';
 
 /**
  * List Quizzes Service
@@ -7,6 +9,11 @@ import { UserQuizModel, UserQuiz } from '../entities/index.js';
  */
 @Injectable()
 class ListQuizzesService {
+  constructor(
+    @InjectModel(UserQuiz.name)
+    private readonly userQuizModel: Model<UserQuizDocument>
+  ) {}
+
   /**
    * Execute query with regex support and common list options
    * Works for both exact emails and partial patterns
@@ -35,7 +42,7 @@ class ListQuizzesService {
       ...(options?.filters ?? {})
     };
 
-    let query = UserQuizModel
+    let query = this.userQuizModel
       .find(mergedFilter)
       .sort({ [options?.sortBy || 'createdAt']: (options?.sortDir || 'desc') === 'asc' ? 1 : -1 });
 

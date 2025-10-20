@@ -29,7 +29,6 @@
     "@nestjs/mongoose": "^11.0.3",
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/swagger": "^11.2.0",
-    "@typegoose/typegoose": "^12.19.0",
     "langchain": "^0.3.36",
     "mongoose": "^8.19.0",
     "openai": "^6.1.0",

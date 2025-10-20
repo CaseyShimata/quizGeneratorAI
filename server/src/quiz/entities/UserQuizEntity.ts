@@ -1,68 +1,33 @@
-import { prop, getModelForClass, modelOptions, Severity, index } from '@typegoose/typegoose';
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { HydratedDocument } from 'mongoose';
 import { Quiz } from './QuizEntity.js';
 import { QuestionSelectedAnswers } from './QuestionSelectedAnswersEntity.js';
 
-/**
- * UserQuiz Entity
- * Represents a user's quiz attempt with their answers and score.
- * Embeds the complete Quiz to prevent data desynchronization.
- * 
- * NOTE: IntelliJ may mark this class as "unused" - this is a FALSE POSITIVE.
- * This class is actively used by Typegoose decorators and the TypeScript type system.
- */
-@index({ email: 1, createdAt: -1 })
-@modelOptions({
-  schemaOptions: {
-    collection: 'userquizzes',
-    timestamps: true
-  },
-  options: {
-    allowMixed: Severity.ALLOW
-  }
+// Define a type for the hydrated Mongoose document
+export type UserQuizDocument = HydratedDocument<UserQuiz>;
+
+@Schema({
+  collection: 'userquizzes',
+  timestamps: true
 })
 class UserQuiz {
-  @prop({ required: true })
-  public email!: string;
+  @Prop({ required: true, index: true })
+  email: string;
 
-  @prop({ required: true, type: () => Quiz })
-  public quiz!: Quiz;
+  @Prop({ required: true, type: () => Quiz })
+  quiz: Quiz;
 
-  @prop({ type: () => [QuestionSelectedAnswers], required: true })
-  public questionsSelectedAnswers!: QuestionSelectedAnswers[];
+  @Prop({ type: () => [QuestionSelectedAnswers], required: true })
+  questionsSelectedAnswers: QuestionSelectedAnswers[];
 
-  @prop({ default: 0 })
-  public totalCorrect!: number;
+  @Prop({ default: 0 })
+  totalCorrect: number;
 
   // Mongoose auto-generates these with timestamps: true
-  public createdAt?: Date;
-  public updatedAt?: Date;
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
-const UserQuizModel = getModelForClass(UserQuiz);
+const UserQuizSchema = SchemaFactory.createForClass(UserQuiz);
 
-export { UserQuiz, UserQuizModel };
-
-
-//TODO: switch out all TypeGoose with modern type inference available as utility in modern mongoose package
-
-// const userQuizSchema = new Schema({
-//     email: { type: String, required: true },
-//     // Embed the sub-document schema directly
-//     quiz: { type: quizSchema, required: true },
-//     // Embed the array of sub-document schemas directly
-//     questionSelectedAnswers: {
-//         type: [questionSelectedAnswersSchema],
-//         required: true,
-//     },
-//     totalCorrect: { type: Number, default: 0 },
-// }, {
-//     collection: 'userquizzes',
-//     timestamps: true,
-//     strict: false, // For `allowMixed: Severity.ALLOW`
-// });
-//
-// // Infer the plain document type from the schema
-// type IUserQuiz = InferSchemaType<typeof userQuizSchema>;
-//
-// // Infer the full hydrated document type and create the model
-// const UserQuizModel = model<IUserQuiz>('UserQuiz', userQuizSchema);
+export { UserQuiz, UserQuizSchema };

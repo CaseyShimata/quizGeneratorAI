@@ -1,18 +1,18 @@
-import { prop } from '@typegoose/typegoose';
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { HydratedDocument } from 'mongoose';
 
-/**
- * QuestionSelectedAnswers Entity
- * Junction entity that stores which answer IDs a user selected for a specific question.
- * 
- * NOTE: IntelliJ may mark this class as "unused" - this is a FALSE POSITIVE.
- * This class is actively used by Typegoose decorators and the TypeScript type system.
- */
+// Define a type for the hydrated Mongoose document
+export type QuestionSelectedAnswersDocument = HydratedDocument<QuestionSelectedAnswers>;
+
+@Schema()
 class QuestionSelectedAnswers {
-  @prop({ required: true })
-  public questionId!: string;
+  @Prop({ required: true })
+  questionId: string;
 
-  @prop({ type: () => [String], required: true })
-  public selectedAnswerIds!: string[];
+  @Prop({ type: () => [String], required: true })
+  selectedAnswerIds: string[];
 }
 
-export { QuestionSelectedAnswers };
+const QuestionSelectedAnswersSchema = SchemaFactory.createForClass(QuestionSelectedAnswers);
+
+export { QuestionSelectedAnswers, QuestionSelectedAnswersSchema };

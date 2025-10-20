@@ -1,25 +1,25 @@
-import { prop } from '@typegoose/typegoose';
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { HydratedDocument } from 'mongoose';
 import { v4 as uuidv4 } from 'uuid';
 
-/**
- * Answer Entity
- * Represents a single answer option for a quiz question.
- * 
- * NOTE: IntelliJ may mark this class as "unused" - this is a FALSE POSITIVE.
- * This class is actively used by Typegoose decorators and the TypeScript type system.
- */
+// Define a type for the hydrated Mongoose document
+export type AnswerDocument = HydratedDocument<Answer>;
+
+@Schema()
 class Answer {
-  @prop({ required: true, default: () => uuidv4() })
-  public id!: string;
+  @Prop({ required: true, default: () => uuidv4() })
+  id: string;
 
-  @prop({ required: true })
-  public text!: string;
+  @Prop({ required: true })
+  text: string;
 
-  @prop({ required: true })
-  public isCorrect!: boolean;
+  @Prop({ required: true })
+  isCorrect: boolean;
 
-  @prop({ default: '' })
-  public explanation!: string;
+  @Prop({ default: '' })
+  explanation: string;
 }
 
-export { Answer };
+const AnswerSchema = SchemaFactory.createForClass(Answer);
+
+export { Answer, AnswerSchema };

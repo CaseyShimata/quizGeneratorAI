@@ -1,11 +1,27 @@
 /**
  * Entities Index
- * Central export point for all quiz-related entities.
+ * Central export point for all quiz-related entities and schemas.
  * This makes imports cleaner throughout the application.
  */
 
-export { Answer } from './AnswerEntity.js';
-export { QuizItem } from './QuizItemEntity.js';
-export { QuestionSelectedAnswers } from './QuestionSelectedAnswersEntity.js';
-export { Quiz, QuizModel } from './QuizEntity.js';
-export { UserQuiz, UserQuizModel } from './UserQuizEntity.js';
+// Import classes for schema registration
+import { UserQuiz, UserQuizSchema, UserQuizDocument } from './UserQuizEntity.js';
+
+export { Answer, AnswerSchema } from './AnswerEntity.js';
+export { QuizItem, QuizItemSchema } from './QuizItemEntity.js';
+export { QuestionSelectedAnswers, QuestionSelectedAnswersSchema } from './QuestionSelectedAnswersEntity.js';
+export { Quiz, QuizSchema } from './QuizEntity.js';
+export { UserQuiz, UserQuizSchema } from './UserQuizEntity.js';
+export type { UserQuizDocument } from './UserQuizEntity.js';
+export type { AnswerDocument } from './AnswerEntity.js';
+export type { QuizItemDocument } from './QuizItemEntity.js';
+export type { QuestionSelectedAnswersDocument } from './QuestionSelectedAnswersEntity.js';
+export type { QuizDocument } from './QuizEntity.js';
+
+/**
+ * All Mongoose schemas for this module
+ * Use this array in QuizModule to register all schemas at once
+ */
+export const ALL_QUIZ_SCHEMAS = [
+  { name: UserQuiz.name, schema: UserQuizSchema }
+];

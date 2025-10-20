@@ -1,35 +1,26 @@
-import { prop, getModelForClass, modelOptions, Severity, index } from '@typegoose/typegoose';
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { HydratedDocument } from 'mongoose';
 import { QuizItem } from './QuizItemEntity.js';
 
-/**
- * Quiz Entity
- * Represents a reusable quiz template with topic and questions.
- * 
- * NOTE: IntelliJ may mark this class as "unused" - this is a FALSE POSITIVE.
- * This class is actively used by Typegoose decorators and the TypeScript type system.
- */
-@index({ topic: 1, createdAt: -1 })
-@modelOptions({
-  schemaOptions: {
-    collection: 'quizzes',
-    timestamps: true
-  },
-  options: {
-    allowMixed: Severity.ALLOW
-  }
+// Define a type for the hydrated Mongoose document
+export type QuizDocument = HydratedDocument<Quiz>;
+
+@Schema({
+  collection: 'quizzes',
+  timestamps: true
 })
 class Quiz {
-  @prop({ required: true })
-  public topic!: string;
+  @Prop({ required: true, index: true })
+  topic: string;
 
-  @prop({ type: () => [QuizItem], required: true })
-  public quizItems!: QuizItem[];
+  @Prop({ type: () => [QuizItem], required: true })
+  quizItems: QuizItem[];
 
   // Mongoose auto-generates these with timestamps: true
-  public createdAt?: Date;
-  public updatedAt?: Date;
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
-const QuizModel = getModelForClass(Quiz);
+const QuizSchema = SchemaFactory.createForClass(Quiz);
 
-export { Quiz, QuizModel };
+export { Quiz, QuizSchema };

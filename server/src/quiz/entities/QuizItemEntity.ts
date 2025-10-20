@@ -1,26 +1,26 @@
-import { prop } from '@typegoose/typegoose';
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { HydratedDocument } from 'mongoose';
 import { v4 as uuidv4 } from 'uuid';
 import { Answer } from './AnswerEntity.js';
 
-/**
- * QuizItem Entity
- * Represents a single question in a quiz with its answer options.
- * 
- * NOTE: IntelliJ may mark this class as "unused" - this is a FALSE POSITIVE.
- * This class is actively used by Typegoose decorators and the TypeScript type system.
- */
+// Define a type for the hydrated Mongoose document
+export type QuizItemDocument = HydratedDocument<QuizItem>;
+
+@Schema()
 class QuizItem {
-  @prop({ required: true, default: () => uuidv4() })
-  public id!: string;
+  @Prop({ required: true, default: () => uuidv4() })
+  id: string;
 
-  @prop({ required: true })
-  public question!: string;
+  @Prop({ required: true })
+  question: string;
 
-  @prop({ type: () => [Answer], required: true })
-  public answers!: Answer[];
+  @Prop({ type: () => [Answer], required: true })
+  answers: Answer[];
 
-  @prop({ default: false })
-  public allowMultipleSelections!: boolean;
+  @Prop({ default: false })
+  allowMultipleSelections: boolean;
 }
 
-export { QuizItem };
+const QuizItemSchema = SchemaFactory.createForClass(QuizItem);
+
+export { QuizItem, QuizItemSchema };

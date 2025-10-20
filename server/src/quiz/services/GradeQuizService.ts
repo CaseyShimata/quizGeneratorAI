@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import {UserQuizModel, Quiz, UserQuiz, QuestionSelectedAnswers, Answer} from '../entities/index.js';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import { Quiz, UserQuiz, UserQuizDocument, QuestionSelectedAnswers, Answer } from '../entities/index.js';
 
 /**
  * Grade Quiz Service
@@ -7,8 +9,13 @@ import {UserQuizModel, Quiz, UserQuiz, QuestionSelectedAnswers, Answer} from '..
  */
 @Injectable()
 class GradeQuizService {
+  constructor(
+    @InjectModel(UserQuiz.name)
+    private readonly userQuizModel: Model<UserQuizDocument>
+  ) {}
+
   async execute(
-    email: string, 
+    email: string,
     quiz: Quiz,
     questionsSelectedAnswers: QuestionSelectedAnswers[]
   ): Promise<UserQuiz> {
@@ -61,7 +68,7 @@ class GradeQuizService {
     }
 
     // Create UserQuiz document
-    const userQuiz = await UserQuizModel.create({
+    const userQuiz = await this.userQuizModel.create({
       email,
       quiz,
       questionsSelectedAnswers,
