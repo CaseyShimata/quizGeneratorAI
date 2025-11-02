@@ -1,0 +1,259 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/api/intelligent-query": {
+      "post": {
+        "description": "Chat with the API using natural language. The AI will:\n    - Help you discover what endpoints are available\n    - Guide you through providing required parameters\n    - Execute API calls when it has all needed information\n    - Remember context per email address (auto-truncates after 20 messages)",
+        "operationId": "IntelligentQueryController_processConversationalQuery",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "email",
+                  "message"
+                ],
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email",
+                    "example": "user@example.com",
+                    "description": "Your email address (used to track conversation)"
+                  },
+                  "message": {
+                    "type": "string",
+                    "example": "What can I do?",
+                    "description": "Your natural language message or question"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Conversational AI query interface",
+        "tags": [
+          "IntelligentQuery"
+        ]
+      }
+    },
+    "/api/quiz/generate": {
+      "post": {
+        "description": "Generate a new quiz on a specific topic using AI. The quiz will contain 5 questions with 4 answer choices each.",
+        "operationId": "GenerateQuizController_generate",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "email",
+                  "topic"
+                ],
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email",
+                    "example": "user@example.com"
+                  },
+                  "topic": {
+                    "type": "string",
+                    "example": "JavaScript Promises"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Quiz generated successfully"
+          },
+          "400": {
+            "description": "Invalid input"
+          }
+        },
+        "summary": "Generate a new quiz",
+        "tags": [
+          "GenerateQuiz"
+        ]
+      }
+    },
+    "/api/quiz/grade": {
+      "post": {
+        "description": "Submit a completed quiz for grading. Returns the score and stores the quiz attempt in the database.",
+        "operationId": "GradeQuizController_grade",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "email",
+                  "quiz",
+                  "questionsSelectedAnswers"
+                ],
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email"
+                  },
+                  "quiz": {
+                    "type": "object",
+                    "properties": {
+                      "topic": {
+                        "type": "string"
+                      },
+                      "quizItems": {
+                        "type": "array",
+                        "items": {
+                          "type": "object"
+                        }
+                      }
+                    }
+                  },
+                  "questionsSelectedAnswers": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "questionId": {
+                          "type": "string"
+                        },
+                        "selectedAnswerIds": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Quiz graded successfully"
+          },
+          "400": {
+            "description": "Invalid input"
+          }
+        },
+        "summary": "Grade a completed quiz",
+        "tags": [
+          "GradeQuiz"
+        ]
+      }
+    },
+    "/api/quiz/list": {
+      "get": {
+        "description": "Retrieve quizzes for a user with flexible filtering, sorting, and pagination.\n    - email: exact or partial (regex) match for email address\n    - limit: limit the number of results\n    - offset: skip a number of results (for pagination)\n    - sortBy: field to sort by (default: createdAt)\n    - sortDir: asc or desc (default: desc)\n    - filters: JSON object of additional field filters to AND with email match\n\n    Examples:\n    - email=shimatacb&limit=3 (first 3 recent)\n    - email=foo@bar.com&limit=3&sortDir=asc (first 3 oldest)\n    - email=example&filters={\"quiz.topic\":\"elephants\"}&sortBy=updatedAt&sortDir=desc\n    ",
+        "operationId": "ListQuizzesController_list",
+        "parameters": [
+          {
+            "name": "email",
+            "required": true,
+            "in": "query",
+            "description": "Email address or pattern to search for. Supports regex patterns.",
+            "schema": {
+              "example": "user@example.com",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Maximum number of results to return.",
+            "schema": {
+              "example": 10,
+              "type": "number"
+            }
+          },
+          {
+            "name": "offset",
+            "required": false,
+            "in": "query",
+            "description": "Number of results to skip (for pagination).",
+            "schema": {
+              "example": 0,
+              "type": "number"
+            }
+          },
+          {
+            "name": "sortBy",
+            "required": false,
+            "in": "query",
+            "description": "Field name to sort by (default: createdAt). Supports dot-notation for nested fields, e.g., \"quiz.topic\". Alias: \"topic\" → \"quiz.topic\".",
+            "schema": {
+              "enum": [
+                "createdAt",
+                "updatedAt",
+                "email",
+                "quiz.topic"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "sortDir",
+            "required": false,
+            "in": "query",
+            "description": "Sort direction: asc or desc (default: desc).",
+            "schema": {
+              "example": "desc",
+              "type": "string"
+            }
+          },
+          {
+            "name": "filters",
+            "required": false,
+            "in": "query",
+            "description": "JSON object of additional field filters to AND with email match.",
+            "schema": {
+              "example": "{\"quiz.topic\":\"elephants\"}",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of quizzes returned successfully"
+          },
+          "400": {
+            "description": "Invalid query parameter"
+          }
+        },
+        "summary": "List quizzes for a user",
+        "tags": [
+          "ListQuizzes"
+        ]
+      }
+    }
+  },
+  "info": {
+    "title": "Quiz Generator AI API",
+    "description": "AI-powered quiz generation and management API with natural language query support",
+    "version": "1.0",
+    "contact": {}
+  },
+  "tags": [],
+  "servers": [],
+  "components": {
+    "schemas": {}
+  }
+}

@@ -1,7 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import { Quiz, UserQuiz, UserQuizDocument, QuestionSelectedAnswers, Answer } from '../entities/index.js';
+import {
+  Quiz,
+  UserQuiz,
+  UserQuizDocument,
+  QuestionSelectedAnswers,
+  Answer,
+} from '../entities/index';
 
 /**
  * Grade Quiz Service
@@ -11,17 +17,18 @@ import { Quiz, UserQuiz, UserQuizDocument, QuestionSelectedAnswers, Answer } fro
 class GradeQuizService {
   constructor(
     @InjectModel(UserQuiz.name)
-    private readonly userQuizModel: Model<UserQuizDocument>
+    private readonly userQuizModel: Model<UserQuizDocument>,
   ) {}
 
   async execute(
     email: string,
     quiz: Quiz,
-    questionsSelectedAnswers: QuestionSelectedAnswers[]
+    questionsSelectedAnswers: QuestionSelectedAnswers[],
   ): Promise<UserQuiz> {
-
     let totalCorrect = 0;
-    const quizItemIdToQuizItemMap = new Map(quiz.quizItems.map(quizItem => [quizItem.id, quizItem]));
+    const quizItemIdToQuizItemMap = new Map(
+      quiz.quizItems.map((quizItem) => [quizItem.id, quizItem]),
+    );
 
     /*
       Each QuestionSelectedAnswers is a junction between a questionId and a set of answerIds
@@ -30,12 +37,13 @@ class GradeQuizService {
       answers against the selected answers to ensure no selected answers were placed where isCorrect == false
      */
     for (const questionSelectedAnswers of questionsSelectedAnswers) {
-
-      const quizItem =  quizItemIdToQuizItemMap.get(questionSelectedAnswers.questionId);
+      const quizItem = quizItemIdToQuizItemMap.get(
+        questionSelectedAnswers.questionId,
+      );
 
       if (!quizItem) {
-          continue;
-          /*
+        continue;
+        /*
            TODO: catch and return error object with stack trace instead of forcing or simply not
             continuing (this is so the developers and user can be notified that
             this part of the code is failing. Add a global log handler.the
@@ -43,7 +51,9 @@ class GradeQuizService {
            */
       }
 
-      const selectedAnswerIdsSet = new Set(questionSelectedAnswers.selectedAnswerIds);
+      const selectedAnswerIdsSet = new Set(
+        questionSelectedAnswers.selectedAnswerIds,
+      );
 
       let noWrongAnswers = true;
 
@@ -53,17 +63,17 @@ class GradeQuizService {
         no direct look up of answer object for given answerId
        */
       for (const answer of quizItem.answers) {
-          if (
-              (selectedAnswerIdsSet.has(answer.id) && !answer.isCorrect)
-              || (answer.isCorrect && !selectedAnswerIdsSet.has(answer.id))
-          ) {
-              noWrongAnswers = false;
-              break;
-          }
+        if (
+          (selectedAnswerIdsSet.has(answer.id) && !answer.isCorrect) ||
+          (answer.isCorrect && !selectedAnswerIdsSet.has(answer.id))
+        ) {
+          noWrongAnswers = false;
+          break;
+        }
       }
 
       if (noWrongAnswers) {
-          totalCorrect++;
+        totalCorrect++;
       }
     }
 
@@ -72,7 +82,7 @@ class GradeQuizService {
       email,
       quiz,
       questionsSelectedAnswers,
-      totalCorrect
+      totalCorrect,
     });
 
     return userQuiz.toObject() as UserQuiz;

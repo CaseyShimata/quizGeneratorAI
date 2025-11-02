@@ -1,5 +1,5 @@
 import { Module, Global } from '@nestjs/common';
-import { OpenAIService } from './services/OpenAIService.js';
+import { OpenAIService } from './services/OpenAIService';
 
 /**
  * OpenAI Module
@@ -8,6 +8,6 @@ import { OpenAIService } from './services/OpenAIService.js';
 @Global()
 @Module({
   providers: [OpenAIService],
-  exports: [OpenAIService]
+  exports: [OpenAIService],
 })
 export class OpenAIModule {}

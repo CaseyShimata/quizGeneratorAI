@@ -1,6 +1,6 @@
 import { Body, Controller, Post } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBody, ApiResponse } from '@nestjs/swagger';
-import { GradeQuizService } from '../services/GradeQuizService.js';
+import { ApiOperation, ApiBody, ApiResponse } from '@nestjs/swagger';
+import { GradeQuizService } from '../services/GradeQuizService';
 import { z } from 'zod';
 
 /**
@@ -8,16 +8,18 @@ import { z } from 'zod';
  * Handles POST /quiz/grade endpoint for quiz grading and submission.
  */
 
-const GradeInputZ = z.object({ 
+const GradeInputZ = z.object({
   email: z.string().email(),
   quiz: z.object({
     topic: z.string().min(1),
-    quizItems: z.array(z.any())
+    quizItems: z.array(z.any()),
   }),
-  questionsSelectedAnswers: z.array(z.object({
-    questionId: z.string(),
-    selectedAnswerIds: z.array(z.string()).min(1)
-  }))
+  questionsSelectedAnswers: z.array(
+    z.object({
+      questionId: z.string(),
+      selectedAnswerIds: z.array(z.string()).min(1),
+    }),
+  ),
 });
 
 @Controller('api/quiz')
@@ -25,9 +27,10 @@ class GradeQuizController {
   constructor(private readonly service: GradeQuizService) {}
 
   @Post('grade')
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Grade a completed quiz',
-    description: 'Submit a completed quiz for grading. Returns the score and stores the quiz attempt in the database.'
+    description:
+      'Submit a completed quiz for grading. Returns the score and stores the quiz attempt in the database.',
   })
   @ApiBody({
     schema: {
@@ -39,8 +42,8 @@ class GradeQuizController {
           type: 'object',
           properties: {
             topic: { type: 'string' },
-            quizItems: { type: 'array', items: { type: 'object' } }
-          }
+            quizItems: { type: 'array', items: { type: 'object' } },
+          },
         },
         questionsSelectedAnswers: {
           type: 'array',
@@ -48,12 +51,12 @@ class GradeQuizController {
             type: 'object',
             properties: {
               questionId: { type: 'string' },
-              selectedAnswerIds: { type: 'array', items: { type: 'string' } }
-            }
-          }
-        }
-      }
-    }
+              selectedAnswerIds: { type: 'array', items: { type: 'string' } },
+            },
+          },
+        },
+      },
+    },
   })
   @ApiResponse({ status: 201, description: 'Quiz graded successfully' })
   @ApiResponse({ status: 400, description: 'Invalid input' })

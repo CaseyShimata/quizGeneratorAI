@@ -1,14 +1,14 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument } from 'mongoose';
-import { Quiz } from './QuizEntity.js';
-import { QuestionSelectedAnswers } from './QuestionSelectedAnswersEntity.js';
+import { Quiz } from './QuizEntity';
+import { QuestionSelectedAnswers } from './QuestionSelectedAnswersEntity';
 
 // Define a type for the hydrated Mongoose document
 export type UserQuizDocument = HydratedDocument<UserQuiz>;
 
 @Schema({
   collection: 'userquizzes',
-  timestamps: true
+  timestamps: true,
 })
 class UserQuiz {
   @Prop({ required: true, index: true })

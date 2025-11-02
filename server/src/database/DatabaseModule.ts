@@ -1,6 +1,6 @@
 import { Module, Global } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
-import { mongooseConfig } from './config/mongooseConfig.js';
+import { mongooseConfig } from './config/mongooseConfig';
 
 /**
  * Database Module
@@ -8,9 +8,7 @@ import { mongooseConfig } from './config/mongooseConfig.js';
  */
 @Global()
 @Module({
-  imports: [
-    MongooseModule.forRootAsync(mongooseConfig)
-  ],
-  exports: [MongooseModule]
+  imports: [MongooseModule.forRootAsync(mongooseConfig)],
+  exports: [MongooseModule],
 })
 export class DatabaseModule {}

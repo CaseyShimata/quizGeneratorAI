@@ -1,10 +1,10 @@
 /**
  * OpenAI Quiz Generation Schema
- * 
+ *
  * Manual JSON Schema for OpenAI's structured output API.
  * This schema must be manually maintained because OpenAI requires a very specific
  * JSON Schema format that automated tools don't generate correctly.
- * 
+ *
  * This schema mirrors the Quiz entity structure (topic + quizItems with answers).
  */
 const OpenAIQuizGenerationSchema = {
@@ -29,21 +29,21 @@ const OpenAIQuizGenerationSchema = {
                   id: { type: 'string' },
                   text: { type: 'string' },
                   isCorrect: { type: 'boolean' },
-                  explanation: { type: 'string' }
+                  explanation: { type: 'string' },
                 },
                 required: ['id', 'text', 'isCorrect', 'explanation'],
-                additionalProperties: false
-              }
-            }
+                additionalProperties: false,
+              },
+            },
           },
           required: ['id', 'question', 'answers'],
-          additionalProperties: false
-        }
-      }
+          additionalProperties: false,
+        },
+      },
     },
     required: ['topic', 'quizItems'],
-    additionalProperties: false
-  }
+    additionalProperties: false,
+  },
 };
 
 export { OpenAIQuizGenerationSchema };

@@ -30,15 +30,15 @@ export class ConversationService {
    */
   getConversation(email: string): ConversationState {
     this.cleanupExpired();
-    
+
     if (!this.conversations.has(email)) {
       this.conversations.set(email, {
         email,
         history: [],
-        lastUpdate: new Date()
+        lastUpdate: new Date(),
       });
     }
-    
+
     const conv = this.conversations.get(email)!;
     conv.lastUpdate = new Date();
     return conv;
@@ -50,7 +50,7 @@ export class ConversationService {
   addMessage(email: string, role: 'user' | 'assistant', content: string): void {
     const conv = this.getConversation(email);
     conv.history.push({ role, content });
-    
+
     // Auto-truncate if needed
     this.truncateIfNeeded(email);
   }
@@ -69,10 +69,14 @@ export class ConversationService {
     }
 
     // Estimate token count and truncate if needed
-    const estimatedTokens = conv.history.length * this.APPROXIMATE_TOKENS_PER_MESSAGE;
+    const estimatedTokens =
+      conv.history.length * this.APPROXIMATE_TOKENS_PER_MESSAGE;
     if (estimatedTokens > this.MAX_CONTEXT_TOKENS) {
       // Remove oldest messages until we're under the limit
-      const messagesToRemove = Math.ceil((estimatedTokens - this.MAX_CONTEXT_TOKENS) / this.APPROXIMATE_TOKENS_PER_MESSAGE);
+      const messagesToRemove = Math.ceil(
+        (estimatedTokens - this.MAX_CONTEXT_TOKENS) /
+          this.APPROXIMATE_TOKENS_PER_MESSAGE,
+      );
       conv.history = conv.history.slice(messagesToRemove);
     }
   }
@@ -84,10 +88,14 @@ export class ConversationService {
     email: string,
     functionName: string,
     collectedParams: Record<string, any>,
-    missingParams: string[]
+    missingParams: string[],
   ): void {
     const conv = this.getConversation(email);
-    conv.pendingFunction = { name: functionName, collectedParams, missingParams };
+    conv.pendingFunction = {
+      name: functionName,
+      collectedParams,
+      missingParams,
+    };
   }
 
   /**
@@ -101,7 +109,9 @@ export class ConversationService {
   /**
    * Get conversation history as messages
    */
-  getHistory(email: string): Array<{ role: 'user' | 'assistant'; content: string }> {
+  getHistory(
+    email: string,
+  ): Array<{ role: 'user' | 'assistant'; content: string }> {
     return this.getConversation(email).history;
   }
 

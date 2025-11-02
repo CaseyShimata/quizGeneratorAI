@@ -1,36 +1,26 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
-import { ALL_QUIZ_SCHEMAS } from './entities/index.js';
+import { ALL_QUIZ_SCHEMAS } from './entities/index';
 
 // Services
-import { GenerateQuizService } from './services/GenerateQuizService.js';
-import { GradeQuizService } from './services/GradeQuizService.js';
-import { ListQuizzesService } from './services/ListQuizzesService.js';
+import { GenerateQuizService } from './services/GenerateQuizService';
+import { GradeQuizService } from './services/GradeQuizService';
+import { ListQuizzesService } from './services/ListQuizzesService';
 
 // Controllers
-import { GenerateQuizController } from './controllers/GenerateQuizController.js';
-import { GradeQuizController } from './controllers/GradeQuizController.js';
-import { ListQuizzesController } from './controllers/ListQuizzesController.js';
+import { GenerateQuizController } from './controllers/GenerateQuizController';
+import { GradeQuizController } from './controllers/GradeQuizController';
+import { ListQuizzesController } from './controllers/ListQuizzesController';
 
 @Module({
-  imports: [
-    MongooseModule.forFeature(ALL_QUIZ_SCHEMAS)
-  ],
+  imports: [MongooseModule.forFeature(ALL_QUIZ_SCHEMAS)],
   controllers: [
     GenerateQuizController,
     GradeQuizController,
-    ListQuizzesController
+    ListQuizzesController,
   ],
-  providers: [
-    GenerateQuizService,
-    GradeQuizService,
-    ListQuizzesService
-  ],
-  exports: [
-    GenerateQuizService,
-    GradeQuizService,
-    ListQuizzesService
-  ]
+  providers: [GenerateQuizService, GradeQuizService, ListQuizzesService],
+  exports: [GenerateQuizService, GradeQuizService, ListQuizzesService],
 })
 class QuizModule {}
 
