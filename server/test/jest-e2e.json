@@ -16,5 +16,7 @@
   },
   "moduleFileExtensions": ["ts", "tsx", "js", "jsx", "json", "node"],
   "testEnvironment": "node",
-  "collectCoverageFrom": ["src/**/*.(t|j)s"]
+  "collectCoverageFrom": ["src/**/*.(t|j)s"],
+  "forceExit": true,
+  "detectOpenHandles": false
 }

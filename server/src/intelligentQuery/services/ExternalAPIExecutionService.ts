@@ -139,14 +139,23 @@ export class ExternalAPIExecutionService {
         variables: variables || {},
       };
 
+      this.logger.log(`GraphQL Payload being sent to ${apiName}:`);
+      this.logger.log(`Query: ${query}`);
+      this.logger.log(`Variables: ${JSON.stringify(variables || {})}`);
+      this.logger.log(
+        `Full Payload: ${JSON.stringify(graphqlPayload, null, 2)}`,
+      );
+
       const requestOptions: APIRequestOptions = {
+        ...options, // Spread first
         method: 'POST',
+        body: JSON.stringify(graphqlPayload),
         headers: {
+          // Then set headers (will override any from options)
           'Content-Type': 'application/json',
-          ...options.headers,
+          'x-apollo-operation-name': 'IntelligentQuery', // For CSRF protection
+          ...(options.headers || {}), // Merge any additional headers from options
         },
-        body: graphqlPayload,
-        ...options,
       };
 
       const response = await this.makeHttpRequest(url, requestOptions);
@@ -350,6 +359,13 @@ export class ExternalAPIExecutionService {
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+        // Log what's being sent to fetch
+        this.logger.log(`fetch() being called with:`);
+        this.logger.log(`URL: ${url}`);
+        this.logger.log(
+          `Options: ${JSON.stringify({ method: options.method, headers: options.headers, body: typeof options.body === 'string' ? options.body.substring(0, 200) : `[${typeof options.body}]` })}`,
+        );
 
         const response = await fetch(url, {
           ...options,

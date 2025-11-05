@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { Logger } from '@nestjs/common';
 import { MONGO_URI } from '../../config/constants';
 
 /**
@@ -7,7 +8,8 @@ import { MONGO_URI } from '../../config/constants';
  */
 export const mongooseConfig = {
   useFactory: async () => {
-    console.log('Connecting to MongoDB at', MONGO_URI);
+    const logger = new Logger('MongoDB');
+    logger.log(`Connecting to MongoDB at ${MONGO_URI}`);
 
     // Establish connection before returning config
     try {
@@ -17,12 +19,9 @@ export const mongooseConfig = {
         maxPoolSize: 10,
         bufferCommands: false,
       } as any);
-      console.log(
-        'MongoDB connected (readyState):',
-        mongoose.connection.readyState,
-      );
+      logger.log(`MongoDB connected (readyState): ${mongoose.connection.readyState}`);
     } catch (err) {
-      console.error('Failed to connect to MongoDB', err);
+      logger.error('Failed to connect to MongoDB', err);
       throw err;
     }
 

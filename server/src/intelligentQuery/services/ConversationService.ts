@@ -14,6 +14,16 @@ interface ConversationState {
     collectedParams: Record<string, any>;
     missingParams: string[];
   };
+  pendingOperation?: {
+    toolName: string;
+    apiName: string;
+    operation: any;
+    collectedParams: Record<string, any>;
+    requiredParams: string[];
+    optionalParams: string[];
+    schema?: any;
+    originalRequest?: string;
+  };
   lastUpdate: Date;
 }
 
@@ -104,6 +114,67 @@ export class ConversationService {
   clearPendingFunction(email: string): void {
     const conv = this.getConversation(email);
     delete conv.pendingFunction;
+  }
+
+  /**
+   * Set pending operation for parameter collection
+   */
+  setPendingOperation(
+    email: string,
+    operation: {
+      toolName: string;
+      apiName: string;
+      operation: any;
+      collectedParams: Record<string, any>;
+      requiredParams: string[];
+      optionalParams: string[];
+      schema?: any;
+      originalRequest?: string;
+    },
+  ): void {
+    const conv = this.getConversation(email);
+    conv.pendingOperation = operation;
+  }
+
+  /**
+   * Update pending operation with new collected parameters
+   */
+  updatePendingOperation(
+    email: string,
+    updates: Partial<{
+      collectedParams: Record<string, any>;
+      requiredParams: string[];
+      optionalParams: string[];
+    }>,
+  ): void {
+    const conv = this.getConversation(email);
+    if (conv.pendingOperation) {
+      if (updates.collectedParams) {
+        conv.pendingOperation.collectedParams = updates.collectedParams;
+      }
+      if (updates.requiredParams) {
+        conv.pendingOperation.requiredParams = updates.requiredParams;
+      }
+      if (updates.optionalParams) {
+        conv.pendingOperation.optionalParams = updates.optionalParams;
+      }
+    }
+  }
+
+  /**
+   * Clear pending operation
+   */
+  clearPendingOperation(email: string): void {
+    const conv = this.getConversation(email);
+    delete conv.pendingOperation;
+  }
+
+  /**
+   * Get pending operation if exists
+   */
+  getPendingOperation(email: string): ConversationState['pendingOperation'] {
+    const conv = this.getConversation(email);
+    return conv.pendingOperation;
   }
 
   /**

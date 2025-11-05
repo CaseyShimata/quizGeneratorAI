@@ -176,7 +176,7 @@ describe('ConversationService', () => {
   });
 
   describe('conversation cleanup', () => {
-    it('should clean up expired conversations', async () => {
+    it('should clean up expired conversations', () => {
       // Create a conversation
       service.addMessage('old@example.com', 'user', 'Hello');
 
@@ -195,6 +195,66 @@ describe('ConversationService', () => {
 
       const conv = service.getConversation('active@example.com');
       expect(conv.history).toHaveLength(2);
+    });
+  });
+
+  describe('setPendingOperation', () => {
+    it('should set pending operation state', () => {
+      service.setPendingOperation('test@example.com', {
+        toolName: 'eswAddresses',
+        apiName: 'eshopweb',
+        operation: { type: 'query' },
+        collectedParams: {},
+        requiredParams: [],
+        optionalParams: ['filter', 'paging'],
+        schema: { parameters: [] },
+        originalRequest: 'list addresses',
+      });
+
+      const operation = service.getPendingOperation('test@example.com');
+      expect(operation).toBeDefined();
+      expect(operation?.toolName).toBe('eswAddresses');
+      expect(operation?.optionalParams).toEqual(['filter', 'paging']);
+    });
+  });
+
+  describe('updatePendingOperation', () => {
+    it('should update collected parameters', () => {
+      service.setPendingOperation('test@example.com', {
+        toolName: 'eswAddresses',
+        apiName: 'eshopweb',
+        operation: { type: 'query' },
+        collectedParams: {},
+        requiredParams: [],
+        optionalParams: ['filter', 'paging'],
+      });
+
+      service.updatePendingOperation('test@example.com', {
+        collectedParams: { filter: { city: { contains: 'West' } } },
+      });
+
+      const operation = service.getPendingOperation('test@example.com');
+      expect(operation?.collectedParams).toEqual({
+        filter: { city: { contains: 'West' } },
+      });
+    });
+  });
+
+  describe('clearPendingOperation', () => {
+    it('should clear pending operation state', () => {
+      service.setPendingOperation('test@example.com', {
+        toolName: 'eswAddresses',
+        apiName: 'eshopweb',
+        operation: { type: 'query' },
+        collectedParams: {},
+        requiredParams: [],
+        optionalParams: [],
+      });
+
+      service.clearPendingOperation('test@example.com');
+
+      const operation = service.getPendingOperation('test@example.com');
+      expect(operation).toBeUndefined();
     });
   });
 
@@ -221,6 +281,32 @@ describe('ConversationService', () => {
 
       expect(conv1.pendingFunction?.name).toBe('func1');
       expect(conv2.pendingFunction?.name).toBe('func2');
+    });
+
+    it('should handle pending operations separately per user', () => {
+      service.setPendingOperation('user1@example.com', {
+        toolName: 'op1',
+        apiName: 'api1',
+        operation: {},
+        collectedParams: {},
+        requiredParams: [],
+        optionalParams: [],
+      });
+
+      service.setPendingOperation('user2@example.com', {
+        toolName: 'op2',
+        apiName: 'api2',
+        operation: {},
+        collectedParams: {},
+        requiredParams: [],
+        optionalParams: [],
+      });
+
+      const op1 = service.getPendingOperation('user1@example.com');
+      const op2 = service.getPendingOperation('user2@example.com');
+
+      expect(op1?.toolName).toBe('op1');
+      expect(op2?.toolName).toBe('op2');
     });
   });
 });

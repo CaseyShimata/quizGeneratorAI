@@ -1,4 +1,4 @@
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { OpenAPIDocsService } from '../services/OpenAPIDocsService';
 
@@ -7,6 +7,8 @@ import { OpenAPIDocsService } from '../services/OpenAPIDocsService';
  * Configures Swagger UI and injects document into OpenAPIDocsService
  */
 export function setupOpenAPI(app: INestApplication): void {
+  const logger = new Logger('OpenAPI');
+  
   // Build OpenAPI configuration
   const config = new DocumentBuilder()
     .setTitle('Quiz Generator AI API')
@@ -26,5 +28,5 @@ export function setupOpenAPI(app: INestApplication): void {
   const openAPIDocsService = app.get(OpenAPIDocsService);
   openAPIDocsService.setOpenAPIDocument(document);
 
-  console.log('OpenAPI documentation configured at /api');
+  logger.log('OpenAPI documentation configured at /api');
 }

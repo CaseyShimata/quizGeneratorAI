@@ -94,7 +94,7 @@ export class OpenAIService {
     },
   ) {
     const { forceToolUse, ...restOptions } = options || {};
-    
+
     const completion = await this.client.chat.completions.create({
       model: restOptions?.model || this.defaultModel,
       messages,

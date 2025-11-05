@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import {
@@ -15,6 +15,8 @@ import {
  */
 @Injectable()
 class GradeQuizService {
+  private readonly logger = new Logger(GradeQuizService.name);
+
   constructor(
     @InjectModel(UserQuiz.name)
     private readonly userQuizModel: Model<UserQuizDocument>,
@@ -42,13 +44,14 @@ class GradeQuizService {
       );
 
       if (!quizItem) {
-        continue;
-        /*
-           TODO: catch and return error object with stack trace instead of forcing or simply not
-            continuing (this is so the developers and user can be notified that
-            this part of the code is failing. Add a global log handler.the
-            endpoint will return a error json instead of data
-           */
+        const errorMessage = `Quiz item not found for questionId: ${questionSelectedAnswers.questionId}`;
+        this.logger.error(errorMessage, {
+          email,
+          quizId: quiz.id,
+          questionId: questionSelectedAnswers.questionId,
+          stackTrace: new Error().stack,
+        });
+        throw new NotFoundException(errorMessage);
       }
 
       const selectedAnswerIdsSet = new Set(

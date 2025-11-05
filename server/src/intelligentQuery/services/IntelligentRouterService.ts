@@ -5,7 +5,7 @@ import { ExternalAPIManagerService } from './ExternalAPIManagerService';
 import { ExternalAPIExecutionService } from './ExternalAPIExecutionService';
 import { ToolBuilder, OpenAITool } from '../../openai/tools/ToolBuilder';
 import { GraphQLSchemaParser } from './GraphQLSchemaParser';
-
+import { ConversationService } from './ConversationService';
 /**
  * Intelligent Router Service
  * Routes requests to ANY API (internal or external) using OpenAPI documentation
@@ -14,12 +14,14 @@ import { GraphQLSchemaParser } from './GraphQLSchemaParser';
 @Injectable()
 export class IntelligentRouterService {
   private readonly logger = new Logger(IntelligentRouterService.name);
+  private schemaCache: Map<string, string> = new Map(); // Cache loaded schemas
 
   constructor(
     private readonly openAIService: OpenAIService,
     private readonly apiManager: ExternalAPIManagerService,
     private readonly apiExecutor: ExternalAPIExecutionService,
     private readonly graphQLParser: GraphQLSchemaParser,
+    private readonly conversationService: ConversationService,
   ) {}
 
   /**
@@ -30,6 +32,22 @@ export class IntelligentRouterService {
     context?: Record<string, any>,
   ): Promise<any> {
     try {
+      // Check if user has a pending operation (conversational parameter collection)
+      const email = context?.email;
+      if (email) {
+        const pendingOp = this.conversationService.getPendingOperation(email);
+        if (pendingOp) {
+          this.logger.log(
+            `Continuing parameter collection for ${pendingOp.toolName}`,
+          );
+          return await this.continueParameterCollection(
+            email,
+            userPrompt,
+            pendingOp,
+          );
+        }
+      }
+
       // Get all available APIs and build unified tool list
       const { tools, apiToolMap } = await this.getAllAPITools();
 
@@ -52,9 +70,13 @@ export class IntelligentRouterService {
       );
 
       // If we have multiple equally good matches, ask user to choose
-      if (topMatches.length > 1 && topMatches[0].score === topMatches[1].score) {
+      if (
+        topMatches.length > 1 &&
+        topMatches[0].score === topMatches[1].score
+      ) {
         return {
           needsMoreInfo: true,
+          collectingParameters: true,
           message: `I found ${topMatches.length} operations that could work. Which one would you like to use?`,
           options: topMatches.map((match) => {
             const info = apiToolMap.get(match.tool.function.name);
@@ -68,13 +90,21 @@ export class IntelligentRouterService {
         };
       }
 
-      // Build system prompt
+      // Build system prompt with schema information
       const filteredToolMap = new Map(
         Array.from(apiToolMap.entries()).filter(([name]) =>
           filteredTools.some((t) => t.function.name === name),
         ),
       );
-      const systemPrompt = this.buildProgrammerSystemPrompt(filteredToolMap);
+
+      // Load GraphQL schemas for filtered tools to provide INPUT type definitions
+      const schemaContext =
+        await this.loadSchemaContextForTools(filteredToolMap);
+
+      const systemPrompt = this.buildProgrammerSystemPrompt(
+        filteredToolMap,
+        schemaContext,
+      );
 
       // Build messages
       const messages = PromptBuilder.buildMessages(systemPrompt, userPrompt);
@@ -88,8 +118,10 @@ export class IntelligentRouterService {
 
       // Determine if this is an ACTION query (should call API) or INFORMATIONAL query (can respond with text)
       const promptLower = userPrompt.toLowerCase();
-      const isActionQuery = promptLower.match(/\b(create|generate|make|list|show|get|update|modify|delete|remove|grade|submit)\b/);
-      
+      const isActionQuery = promptLower.match(
+        /\b(create|generate|make|list|show|get|update|modify|delete|remove|grade|submit)\b/,
+      );
+
       // Get AI's routing decision - FORCE function calling ONLY for action queries
       const response = await this.openAIService.createFunctionCallingCompletion(
         messages,
@@ -106,6 +138,7 @@ export class IntelligentRouterService {
             toolCall.function.name,
             JSON.parse(toolCall.function.arguments),
             apiToolMap,
+            { ...context, originalRequest: userPrompt },
           );
         }
       }
@@ -130,7 +163,10 @@ export class IntelligentRouterService {
     tools: OpenAITool[],
     userPrompt: string,
     apiToolMap: Map<string, { apiName: string; operation: any }>,
-  ): { filteredTools: OpenAITool[]; topMatches: Array<{ tool: OpenAITool; score: number }> } {
+  ): {
+    filteredTools: OpenAITool[];
+    topMatches: Array<{ tool: OpenAITool; score: number }>;
+  } {
     const MAX_TOOLS = 30;
 
     const promptLower = userPrompt.toLowerCase();
@@ -139,13 +175,29 @@ export class IntelligentRouterService {
     // EXCLUDE action words - those are handled separately
     const keywords = promptLower
       .split(/\s+/)
+      .map((word) => word.replace(/[^a-z0-9]/g, '')) // Remove punctuation
       .filter((word) => word.length > 3)
       .filter(
         (word) =>
-          !['this', 'that', 'with', 'from', 'want', 'need', 'show', 'list', 'some', 'like',
-            'create', 'update', 'delete', 'generate', 'make', 'build', 'add'].includes(
-            word,
-          ),
+          ![
+            'this',
+            'that',
+            'with',
+            'from',
+            'want',
+            'need',
+            'show',
+            'list',
+            'some',
+            'like',
+            'create',
+            'update',
+            'delete',
+            'generate',
+            'make',
+            'build',
+            'add',
+          ].includes(word),
       );
 
     this.logger.log(`Extracted keywords: ${keywords.join(', ')}`);
@@ -182,7 +234,9 @@ export class IntelligentRouterService {
       }
 
       // RULE 3: Entity matching - operation must mention at least one keyword
-      const hasKeywordMatch = keywords.some((keyword) => toolName.includes(keyword));
+      const hasKeywordMatch = keywords.some((keyword) =>
+        toolName.includes(keyword),
+      );
       if (keywords.length > 0 && !hasKeywordMatch) {
         this.logger.debug(`ELIMINATED (no entity match): ${toolName}`);
         return false;
@@ -218,11 +272,16 @@ export class IntelligentRouterService {
       }
 
       // Exact operation type match
-      if (promptLower.includes('list') && toolName.startsWith('list')) score += 30;
-      if (promptLower.includes('get') && toolName.startsWith('get')) score += 30;
-      if (promptLower.includes('create') && toolName.startsWith('create')) score += 30;
-      if (promptLower.includes('update') && toolName.startsWith('update')) score += 30;
-      if (promptLower.includes('delete') && toolName.startsWith('delete')) score += 30;
+      if (promptLower.includes('list') && toolName.startsWith('list'))
+        score += 30;
+      if (promptLower.includes('get') && toolName.startsWith('get'))
+        score += 30;
+      if (promptLower.includes('create') && toolName.startsWith('create'))
+        score += 30;
+      if (promptLower.includes('update') && toolName.startsWith('update'))
+        score += 30;
+      if (promptLower.includes('delete') && toolName.startsWith('delete'))
+        score += 30;
 
       return { tool, score };
     });
@@ -232,7 +291,10 @@ export class IntelligentRouterService {
 
     // Log top matches for debugging
     this.logger.log(
-      `Top 5 matches: ${sorted.slice(0, 5).map((s) => `${s.tool.function.name}(${s.score})`).join(', ')}`,
+      `Top 5 matches: ${sorted
+        .slice(0, 5)
+        .map((s) => `${s.tool.function.name}(${s.score})`)
+        .join(', ')}`,
     );
 
     return {
@@ -242,10 +304,143 @@ export class IntelligentRouterService {
   }
 
   /**
+   * Load GraphQL schema context for filtered tools
+   * Extracts INPUT type definitions to help AI use correct field names
+   */
+  private async loadSchemaContextForTools(
+    apiToolMap: Map<string, { apiName: string; operation: any }>,
+  ): Promise<string> {
+    const schemaContext: string[] = [];
+
+    // Group operations by API to avoid loading schema multiple times
+    const apiOperations = new Map<string, any[]>();
+
+    for (const [, info] of apiToolMap.entries()) {
+      if (!apiOperations.has(info.apiName)) {
+        apiOperations.set(info.apiName, []);
+      }
+      apiOperations.get(info.apiName)!.push(info.operation);
+    }
+
+    // Load schema for each GraphQL API
+    for (const [apiName, operations] of apiOperations.entries()) {
+      try {
+        const apiConfig = this.apiManager.getAPIConfig(apiName);
+        if (apiConfig?.type !== 'graphql') continue;
+
+        // Load schema
+        let schema = this.schemaCache.get(apiName);
+        if (!schema) {
+          const loadedSchema =
+            await this.apiManager.loadAPIDocumentation(apiName);
+          if (typeof loadedSchema === 'string') {
+            schema = loadedSchema;
+            this.schemaCache.set(apiName, schema);
+          }
+        }
+
+        if (!schema) continue;
+
+        // Extract INPUT types
+        const inputTypes = this.graphQLParser.extractInputTypes(schema);
+
+        // Collect unique parameter types from operations
+        const parameterTypes = new Set<string>();
+        for (const op of operations) {
+          if (op.type === 'query' || op.type === 'mutation') {
+            for (const param of op.parameters || []) {
+              const baseType = param.type.replace(/[\[\]!]/g, '').trim();
+              parameterTypes.add(baseType);
+            }
+          }
+        }
+
+        // Build schema context for parameter types
+        for (const paramType of parameterTypes) {
+          const inputTypeDef = inputTypes.get(paramType);
+          if (inputTypeDef) {
+            if (inputTypeDef.isEnum) {
+              schemaContext.push(`
+${paramType} (enum):
+  Valid values: ${inputTypeDef.values.join(', ')}`);
+            } else {
+              schemaContext.push(`
+${paramType} (input type):
+  Fields: ${JSON.stringify(inputTypeDef.fields, null, 2)}`);
+            }
+          }
+        }
+      } catch (error) {
+        this.logger.warn(`Failed to load schema context for ${apiName}`);
+      }
+    }
+
+    if (schemaContext.length === 0) {
+      return '';
+    }
+
+    return `
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🚨 CRITICAL: GraphQL Schema-Aware Parameter Generation 🚨
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+**MANDATORY RULES:**
+
+1. ❌ NEVER use generic field names like: "limit", "offset", "filter", "sort"
+2. ✅ ONLY use field names EXACTLY as defined in the schema below
+3. ✅ Check the schema BEFORE generating ANY parameters
+4. ✅ For string filters, use "iLike" (case-insensitive) or "like" (case-sensitive), NEVER "contains"
+5. ✅ For enums (like sort direction), use unquoted values: ASC or DESC (not "ASC" or "DESC")
+6. ✅ For pagination, use "first"/"last" with cursor pagination, NOT "limit"/"offset"
+7. ✅ Do NOT include "includePagingDetails" - pagination details are returned automatically
+
+**Schema Definitions:**
+${schemaContext.join('\n')}
+
+**Examples of CORRECT usage:**
+
+❌ WRONG: {"limit": 10, "offset": 0}
+✅ RIGHT: {"paging": {"first": 10}}
+
+❌ WRONG: {"filter": {"city": {"contains": "West"}}}
+✅ RIGHT: {"filter": {"city": {"iLike": "%West%"}}}
+
+❌ WRONG: {"sorting": [{"field": "city", "direction": "ASC"}]}
+✅ RIGHT: {"sorting": [{"field": city, "direction": ASC}]}
+   Note: field and direction are ENUMS - no quotes!
+
+❌ WRONG: {"paging": {"first": 10, "includePagingDetails": true}}
+✅ RIGHT: {"paging": {"first": 10}}
+   Note: includePagingDetails doesn't exist in CursorPaging
+
+**String Filter Operators (StringFieldComparison):**
+- iLike: Case-insensitive pattern match (use % for wildcards)
+- like: Case-sensitive pattern match
+- eq: Exact match
+- neq: Not equal
+- in: Value in list
+- notIn: Value not in list
+❌ NEVER use "contains" - it doesn't exist!
+
+**Validation Checklist Before Calling Function:**
+□ Did I check the schema for this operation?
+□ Are ALL my parameter names in the schema?
+□ Am I using the correct nested structure?
+□ Am I using enum values WITHOUT quotes?
+□ Am I using "iLike" instead of "contains" for string filters?
+□ Did I avoid using "includePagingDetails"?
+
+Remember: Schema compliance is NON-NEGOTIABLE. Wrong field names = API failure.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+  }
+
+  /**
    * Build system prompt that tells AI to think like a programmer
    */
   private buildProgrammerSystemPrompt(
     apiToolMap: Map<string, { apiName: string; operation: any }>,
+    schemaContext: string = '',
   ): string {
     const apiGroups = new Map<string, string[]>();
 
@@ -270,12 +465,16 @@ export class IntelligentRouterService {
         // Handle REST operations
         apiGroups
           .get(info.apiName)!
-          .push(`${op.method} ${op.path}: ${op.summary || op.description || 'No description'}`);
+          .push(
+            `${op.method} ${op.path}: ${op.summary || op.description || 'No description'}`,
+          );
       }
     }
 
     const apiList = Array.from(apiGroups.entries())
-      .map(([apiName, endpoints]) => `\n**${apiName}:**\n${endpoints.join('\n')}`)
+      .map(
+        ([apiName, endpoints]) => `\n**${apiName}:**\n${endpoints.join('\n')}`,
+      )
       .join('\n');
 
     return `You are an intelligent API router. Your job is to CALL API FUNCTIONS, not generate responses.
@@ -306,6 +505,7 @@ export class IntelligentRouterService {
    - Never mix similar entities
 
 **Available APIs and Endpoints:**${apiList}
+${schemaContext}
 
 Remember: Your job is to ROUTE to API functions, not to perform the task yourself. When in doubt, call the function.`;
   }
@@ -325,16 +525,26 @@ Remember: Your job is to ROUTE to API functions, not to perform the task yoursel
 
     for (const [apiName, apiConfig] of Object.entries(enabledAPIs)) {
       try {
-        const documentation = await this.apiManager.loadAPIDocumentation(apiName);
+        const documentation =
+          await this.apiManager.loadAPIDocumentation(apiName);
 
         if (apiConfig.type === 'graphql') {
           // Handle GraphQL schema
           if (typeof documentation === 'string') {
-            const { queries, mutations } = this.graphQLParser.parseSchema(documentation);
+            const { queries, mutations } =
+              this.graphQLParser.parseSchema(documentation);
 
-            // Add queries as tools
+            // Extract INPUT types for schema-aware tool generation
+            const inputTypes = this.graphQLParser.extractInputTypes(documentation);
+
+            // Add queries as tools with schema context
             for (const [queryName, query] of queries.entries()) {
-              const tool = this.graphQLParser.buildToolFromOperation(queryName, query, 'query');
+              const tool = this.buildSchemaAwareTool(
+                queryName,
+                query,
+                'query',
+                inputTypes,
+              );
               tools.push(tool);
 
               apiToolMap.set(queryName, {
@@ -348,12 +558,13 @@ Remember: Your job is to ROUTE to API functions, not to perform the task yoursel
               });
             }
 
-            // Add mutations as tools
+            // Add mutations as tools with schema context
             for (const [mutationName, mutation] of mutations.entries()) {
-              const tool = this.graphQLParser.buildToolFromOperation(
+              const tool = this.buildSchemaAwareTool(
                 mutationName,
                 mutation,
                 'mutation',
+                inputTypes,
               );
               tools.push(tool);
 
@@ -385,7 +596,9 @@ Remember: Your job is to ROUTE to API functions, not to perform the task yoursel
           // Filter out intelligent-query endpoints to prevent recursion
           const filteredTools = apiTools.filter((tool) => {
             const toolName = tool.function.name.toLowerCase();
-            return !toolName.includes('intelligent') && !toolName.includes('query');
+            return (
+              !toolName.includes('intelligent') && !toolName.includes('query')
+            );
           });
 
           // Add to unified tool list and map
@@ -394,7 +607,9 @@ Remember: Your job is to ROUTE to API functions, not to perform the task yoursel
 
             // Find the operation in the OpenAPI doc
             for (const [path, methods] of Object.entries(documentation.paths)) {
-              for (const [method, operation] of Object.entries(methods as Record<string, any>)) {
+              for (const [method, operation] of Object.entries(
+                methods as Record<string, any>,
+              )) {
                 if (operation?.operationId === tool.function.name) {
                   apiToolMap.set(tool.function.name, {
                     apiName,
@@ -410,10 +625,15 @@ Remember: Your job is to ROUTE to API functions, not to perform the task yoursel
             }
           }
 
-          this.logger.log(`Loaded ${filteredTools.length} REST operations from ${apiName}`);
+          this.logger.log(
+            `Loaded ${filteredTools.length} REST operations from ${apiName}`,
+          );
         }
       } catch (error: any) {
-        this.logger.error(`Failed to load tools from ${apiName}:`, error.message);
+        this.logger.error(
+          `Failed to load tools from ${apiName}:`,
+          error.message,
+        );
       }
     }
 
@@ -422,12 +642,13 @@ Remember: Your job is to ROUTE to API functions, not to perform the task yoursel
 
   /**
    * Execute a tool call by routing to the correct API
-   * Shows detailed parameter schemas when asking for more info
+   * Starts conversational parameter collection when needed
    */
   private async executeToolCall(
     toolName: string,
     args: Record<string, any>,
     apiToolMap: Map<string, { apiName: string; operation: any }>,
+    context?: Record<string, any>,
   ): Promise<any> {
     const toolInfo = apiToolMap.get(toolName);
 
@@ -446,37 +667,91 @@ Remember: Your job is to ROUTE to API functions, not to perform the task yoursel
       };
     }
 
-    // Check for required parameters
-    const requiredParams = this.getRequiredParameters(operation);
-    const missingParams = requiredParams.filter((param) => !args[param]);
-
-    if (missingParams.length > 0) {
-      return {
-        needsMoreInfo: true,
-        message: `To use ${toolName}, I need the following information: ${missingParams.join(', ')}. Please provide these values.`,
-        missingParameters: missingParams,
-        operation: toolName,
-        api: apiName,
-      };
+    // PHASE 9 FIX: Transform generic parameter names to schema-compliant names
+    // This works dynamically for ANY API without hardcoding
+    if (apiConfig.type === 'graphql' && Object.keys(args).length > 0) {
+      args = await this.transformParametersToSchema(args, operation, apiName);
     }
 
-    // CRITICAL: Prevent execution with empty args when operation has parameters
+    // Get all parameters (required + optional)
+    const requiredParams = this.getRequiredParameters(operation);
+    const allParams = this.getParameterDetails(operation);
+    const optionalParams = allParams
+      .filter((p) => !p.required)
+      .map((p) => p.name);
+
+    // Check for REQUIRED parameters
+    const missingRequired = requiredParams.filter((param) => !args[param]);
+
+    // If missing REQUIRED params, start conversational collection
+    if (missingRequired.length > 0 && context?.email) {
+      const email = context.email;
+
+      // Start parameter collection
+      this.conversationService.setPendingOperation(email, {
+        toolName,
+        apiName,
+        operation,
+        collectedParams: args,
+        requiredParams: missingRequired,
+        optionalParams,
+        originalRequest: context.originalRequest || toolName,
+      });
+
+      // Ask for first required parameter
+      return await this.askForNextParameter(
+        email,
+        {
+          toolName,
+          apiName,
+          operation,
+          collectedParams: args,
+          requiredParams: missingRequired,
+          optionalParams,
+        },
+        '',
+      );
+    }
+
+    // Check if operation has parameters but none provided
     const hasParameters =
       operation.type === 'query' || operation.type === 'mutation'
         ? operation.parameters && operation.parameters.length > 0
         : operation.requestBody || operation.parameters;
 
-    if (hasParameters && Object.keys(args).length === 0) {
-      // Get detailed parameter information
-      const paramDetails = this.getParameterDetails(operation);
+    // If has OPTIONAL parameters but none provided, start conversation
+    if (
+      hasParameters &&
+      Object.keys(args).length === 0 &&
+      optionalParams.length > 0 &&
+      context?.email
+    ) {
+      const email = context.email;
 
-      return {
-        needsMoreInfo: true,
-        message: `To use ${toolName}, please provide filter criteria or parameters. Here's what's available:`,
-        availableParameters: paramDetails,
-        operation: toolName,
-        api: apiName,
-      };
+      // Start parameter collection for optional params
+      this.conversationService.setPendingOperation(email, {
+        toolName,
+        apiName,
+        operation,
+        collectedParams: {},
+        requiredParams: [],
+        optionalParams,
+        originalRequest: context.originalRequest || toolName,
+      });
+
+      // Ask about optional parameters
+      return await this.askForNextParameter(
+        email,
+        {
+          toolName,
+          apiName,
+          operation,
+          collectedParams: {},
+          requiredParams: [],
+          optionalParams,
+        },
+        '',
+      );
     }
 
     try {
@@ -484,14 +759,33 @@ Remember: Your job is to ROUTE to API functions, not to perform the task yoursel
 
       if (apiConfig.type === 'rest') {
         // Execute REST request
-        result = await this.apiExecutor.executeRESTRequest(apiName, operation.path, {
-          method: operation.method,
-          body: args,
-        });
+        result = await this.apiExecutor.executeRESTRequest(
+          apiName,
+          operation.path,
+          {
+            method: operation.method,
+            body: args,
+          },
+        );
       } else {
         // Execute GraphQL request
-        const query = this.buildGraphQLQuery(operation, args);
-        result = await this.apiExecutor.executeGraphQLRequest(apiName, query, args);
+        // Build query with inline arguments (not using variables)
+        const query = await this.buildGraphQLQuery(operation, args, apiName);
+        this.logger.log(`Built GraphQL Query: ${query}`);
+        this.logger.log(
+          `GraphQL Variables (should be empty): ${JSON.stringify({})}`,
+        );
+
+        // Get auth headers for the API
+        const authHeaders = this.apiManager.getAuthHeaders(apiName);
+
+        // Don't pass args as variables since we inlined them in the query
+        result = await this.apiExecutor.executeGraphQLRequest(
+          apiName,
+          query,
+          {}, // Empty variables object
+          { headers: authHeaders }, // Pass auth headers in options
+        );
       }
 
       return {
@@ -545,7 +839,8 @@ Remember: Your job is to ROUTE to API functions, not to perform the task yoursel
             name: propName,
             type: prop.type || 'object',
             required: schema.required?.includes(propName) || false,
-            description: prop.description || `Parameter of type ${prop.type || 'object'}`,
+            description:
+              prop.description || `Parameter of type ${prop.type || 'object'}`,
             schema: prop, // Include full schema for complex types
           });
         }
@@ -557,7 +852,9 @@ Remember: Your job is to ROUTE to API functions, not to perform the task yoursel
             name: param.name,
             type: param.schema?.type || 'string',
             required: param.required || false,
-            description: param.description || `Parameter of type ${param.schema?.type || 'string'}`,
+            description:
+              param.description ||
+              `Parameter of type ${param.schema?.type || 'string'}`,
           });
         }
       }
@@ -573,14 +870,20 @@ Remember: Your job is to ROUTE to API functions, not to perform the task yoursel
     if (operation.type === 'query' || operation.type === 'mutation') {
       // GraphQL operation
       return (
-        operation.parameters?.filter((p: any) => p.required).map((p: any) => p.name) || []
+        operation.parameters
+          ?.filter((p: any) => p.required)
+          .map((p: any) => p.name) || []
       );
     } else {
       // REST operation - check requestBody or parameters
       const required: string[] = [];
 
-      if (operation.requestBody?.content?.['application/json']?.schema?.required) {
-        required.push(...operation.requestBody.content['application/json'].schema.required);
+      if (
+        operation.requestBody?.content?.['application/json']?.schema?.required
+      ) {
+        required.push(
+          ...operation.requestBody.content['application/json'].schema.required,
+        );
       }
 
       if (operation.parameters) {
@@ -596,26 +899,26 @@ Remember: Your job is to ROUTE to API functions, not to perform the task yoursel
   /**
    * Build GraphQL query from operation
    */
-  private buildGraphQLQuery(operation: any, args: Record<string, any>): string {
+  private async buildGraphQLQuery(
+    operation: any,
+    args: Record<string, any>,
+    apiName: string,
+  ): Promise<string> {
     const operationType = operation.type === 'mutation' ? 'mutation' : 'query';
     const operationName = operation.name;
 
-    // Build arguments string
+    // Build arguments string with proper GraphQL formatting
     const argsStr = Object.entries(args)
       .map(([key, value]) => {
-        // Handle different value types
-        if (typeof value === 'string') {
-          return `${key}: "${value}"`;
-        } else if (typeof value === 'object') {
-          return `${key}: ${JSON.stringify(value).replace(/"([^"]+)":/g, '$1:')}`;
-        }
-        return `${key}: ${value}`;
+        return `${key}: ${this.formatGraphQLValue(value)}`;
       })
       .join(', ');
 
-    // For now, request basic fields - in production this would be more sophisticated
-    // based on the returnType and user's needs
-    const fieldsToRequest = this.getBasicFieldsForType(operation.returnType);
+    // Get fields to request from schema
+    const fieldsToRequest = await this.getFieldsForType(
+      operation.returnType,
+      apiName,
+    );
 
     return `${operationType} {
       ${operationName}${argsStr ? `(${argsStr})` : ''} ${fieldsToRequest}
@@ -623,15 +926,98 @@ Remember: Your job is to ROUTE to API functions, not to perform the task yoursel
   }
 
   /**
-   * Get basic fields to request based on return type
+   * Format a value for GraphQL query (not JSON-stringified for variables)
+   * CRITICAL: Enum values must NOT be quoted in GraphQL
    */
-  private getBasicFieldsForType(returnType: string): string {
-    // For connection types (pagination), request edges and nodes
-    if (returnType.includes('Connection') || returnType.includes('Edge')) {
+  private formatGraphQLValue(value: any, fieldName?: string): string {
+    if (value === null || value === undefined) {
+      return 'null';
+    }
+
+    if (typeof value === 'string') {
+      // Check if this looks like an enum value (all caps or PascalCase without spaces)
+      // Common enum patterns: ASC, DESC, ACTIVE, INACTIVE, etc.
+      const isLikelyEnum =
+        /^[A-Z][A-Z_]*$/.test(value) || /^[A-Z][a-zA-Z]*$/.test(value);
+
+      // Special case: direction field is always an enum (ASC/DESC)
+      const isDirectionField = fieldName === 'direction';
+
+      if (isLikelyEnum || isDirectionField) {
+        // Don't quote enum values
+        return value;
+      }
+
+      // Regular strings get quoted
+      return `"${value.replace(/"/g, '\\"')}"`;
+    }
+
+    if (typeof value === 'number' || typeof value === 'boolean') {
+      return String(value);
+    }
+
+    if (Array.isArray(value)) {
+      return `[${value.map((v) => this.formatGraphQLValue(v)).join(', ')}]`;
+    }
+
+    if (typeof value === 'object') {
+      const entries = Object.entries(value)
+        .map(([k, v]) => `${k}: ${this.formatGraphQLValue(v, k)}`)
+        .join(', ');
+      return `{${entries}}`;
+    }
+
+    return String(value);
+  }
+
+  /**
+   * Get fields to request from GraphQL type
+   * Uses schema parser to extract actual fields from the schema
+   */
+  private async getFieldsForType(
+    returnType: string,
+    apiName: string,
+  ): Promise<string> {
+    try {
+      // Load schema from cache or API
+      let schema = this.schemaCache.get(apiName);
+      if (!schema) {
+        const loadedSchema =
+          await this.apiManager.loadAPIDocumentation(apiName);
+        if (typeof loadedSchema === 'string') {
+          schema = loadedSchema;
+          this.schemaCache.set(apiName, schema);
+        }
+      }
+
+      if (!schema) {
+        // Fallback to __typename only
+        return this.getFallbackFields(returnType);
+      }
+
+      // Use GraphQLSchemaParser to extract fields
+      const fields = this.graphQLParser.extractFieldsFromType(
+        schema,
+        returnType,
+        2, // Max depth of 2 to avoid too deep nesting
+      );
+
+      return fields || this.getFallbackFields(returnType);
+    } catch {
+      // On error, fallback to safe fields
+      return this.getFallbackFields(returnType);
+    }
+  }
+
+  /**
+   * Get fallback fields when schema extraction fails
+   */
+  private getFallbackFields(returnType: string): string {
+    // For connection types (pagination)
+    if (returnType.includes('Connection')) {
       return `{
         edges {
           node {
-            id
             __typename
           }
         }
@@ -642,10 +1028,9 @@ Remember: Your job is to ROUTE to API functions, not to perform the task yoursel
       }`;
     }
 
-    // For array types, request basic fields
+    // For array types
     if (returnType.startsWith('[')) {
       return `{
-        id
         __typename
       }`;
     }
@@ -655,11 +1040,172 @@ Remember: Your job is to ROUTE to API functions, not to perform the task yoursel
       return '';
     }
 
-    // For object types, request id and typename
+    // For object types, request just __typename
     return `{
-      id
       __typename
     }`;
+  }
+
+  /**
+   * Build schema-aware tool from GraphQL operation
+   * This embeds schema field names directly in the tool definition
+   * so OpenAI sees the correct parameter structure when generating arguments
+   */
+  private buildSchemaAwareTool(
+    operationName: string,
+    operation: any,
+    operationType: 'query' | 'mutation',
+    inputTypes: Map<string, any>,
+  ): any {
+    const parameters: any = {
+      type: 'object',
+      properties: {},
+      required: [],
+    };
+
+    // Add parameters with schema-enriched descriptions
+    for (const param of operation.parameters || []) {
+      const baseType = param.type.replace(/[[\]!]/g, '').trim();
+      const inputTypeDef = inputTypes.get(baseType);
+
+      let description = `Parameter of type ${param.type}`;
+      
+      if (inputTypeDef) {
+        if (inputTypeDef.isEnum) {
+          // For enums, show valid values
+          description = `ENUM - Use one of: ${inputTypeDef.values.join(', ')}`;
+        } else {
+          // For input types, show exact field structure
+          description = `INPUT OBJECT with fields: ${JSON.stringify(inputTypeDef.fields)}. Example: ${this.generateExample(inputTypeDef.fields)}`;
+        }
+      }
+
+      parameters.properties[param.name] = {
+        type: 'object',
+        description,
+      };
+
+      if (param.required) {
+        parameters.required.push(param.name);
+      }
+    }
+
+    return {
+      type: 'function',
+      function: {
+        name: operationName,
+        description:
+          operation.description ||
+          `${operationType === 'query' ? 'Query' : 'Mutate'} ${operationName} returning ${operation.returnType}`,
+        parameters,
+      },
+    };
+  }
+
+  /**
+   * Generate example JSON for a field structure
+   */
+  private generateExample(fields: Record<string, string>): string {
+    const example: any = {};
+
+    for (const [fieldName, fieldType] of Object.entries(fields)) {
+      const cleanType = fieldType.replace(/[[\]!]/g, '').trim();
+
+      if (cleanType === 'Int') {
+        example[fieldName] = 10;
+      } else if (cleanType === 'String') {
+        example[fieldName] = '"value"';
+      } else if (cleanType === 'Boolean') {
+        example[fieldName] = true;
+      } else if (fieldType.includes('Filter') || fieldType.includes('Input')) {
+        example[fieldName] = '{...}';
+      } else {
+        example[fieldName] = 'value';
+      }
+    }
+
+    return JSON.stringify(example);
+  }
+
+  /**
+   * Transform generic parameter names to schema-compliant names
+   * Uses AI to intelligently map parameters based on schema analysis
+   * Works dynamically for ANY GraphQL API without hardcoding
+   */
+  private async transformParametersToSchema(
+    args: Record<string, any>,
+    operation: any,
+    apiName: string,
+  ): Promise<Record<string, any>> {
+    try {
+      // Load schema to get INPUT type definitions
+      const schema = await this.apiManager.loadAPIDocumentation(apiName);
+      if (typeof schema !== 'string') return args;
+
+      const inputTypes = this.graphQLParser.extractInputTypes(schema);
+
+      // Build schema context for this operation's parameters
+      const parameterSchemas: Record<string, any> = {};
+      for (const param of operation.parameters || []) {
+        const baseType = param.type.replace(/[[\]!]/g, '').trim();
+        const inputTypeDef = inputTypes.get(baseType);
+        if (inputTypeDef) {
+          parameterSchemas[param.name] = inputTypeDef;
+        }
+      }
+
+      // Use AI to intelligently map generic args to schema fields
+      const mappingPrompt = `You are transforming API parameters to match a GraphQL schema.
+
+**Original Parameters (from AI):**
+${JSON.stringify(args, null, 2)}
+
+**GraphQL Operation Schema:**
+Operation: ${operation.name}
+Parameters: ${operation.parameters?.map((p: any) => `${p.name}: ${p.type}`).join(', ')}
+
+**INPUT Type Definitions:**
+${JSON.stringify(parameterSchemas, null, 2)}
+
+**Your Task:**
+Transform the original parameters to match the exact schema structure.
+
+**Common Transformations:**
+- "limit" → Check schema for pagination field (e.g., "paging.first", "take", "pageSize")
+- "offset" → Check schema for offset field (e.g., "paging.after", "skip", "page")
+- "filter" → Keep as "filter" if schema has it, map contents to schema filter fields
+- "sort" → Check schema for sorting field (e.g., "sorting", "orderBy", "sort")
+
+**Rules:**
+1. Use ONLY field names that exist in the schema
+2. Match the exact nesting structure from INPUT types
+3. If a generic field maps to multiple schema fields, create the correct object structure
+4. If no clear mapping exists, keep the original field
+5. Return valid JSON
+
+**Example:**
+Input: {"limit": 10, "filter": {"city": {"contains": "Salt"}}}
+Schema has: paging: {first: Int, after: String}, filter: {city: StringFieldComparison}
+Output: {"paging": {"first": 10}, "filter": {"city": {"contains": "Salt"}}}
+
+Transform now:`;
+
+      const response = await this.openAIService.createCompletion(
+        [{ role: 'system', content: mappingPrompt }],
+        { temperature: 0, response_format: { type: 'json_object' } },
+      );
+
+      const transformed = JSON.parse(response || '{}');
+
+      this.logger.log(`Parameter transformation:`);
+      this.logger.log(`  Before: ${JSON.stringify(args)}`);
+      this.logger.log(`  After:  ${JSON.stringify(transformed)}`);
+
+      return transformed;
+    } catch {
+      this.logger.warn('Parameter transformation failed, using original args');
+      return args;
+    }
   }
 
   /**
@@ -686,5 +1232,231 @@ Remember: Your job is to ROUTE to API functions, not to perform the task yoursel
         ([apiName, endpoints]) => `\n**${apiName}:**\n${endpoints.join('\n')}`,
       )
       .join('\n');
+  }
+
+  /**
+   * Continue parameter collection conversation
+   * Phase 5 & 7: Parse user responses with schema-aware field names
+   */
+  private async continueParameterCollection(
+    email: string,
+    userResponse: string,
+    pendingOp: any,
+  ): Promise<any> {
+    try {
+      // Load GraphQL schema if this is a GraphQL API to get exact INPUT type definitions
+      let paramSchemas = '';
+      if (
+        pendingOp.operation?.type === 'query' ||
+        pendingOp.operation?.type === 'mutation'
+      ) {
+        try {
+          const schema = await this.apiManager.loadAPIDocumentation(
+            pendingOp.apiName,
+          );
+          if (typeof schema === 'string') {
+            const inputTypes = this.graphQLParser.extractInputTypes(schema);
+
+            // Build schema definitions for each parameter
+            const schemaDescriptions: string[] = [];
+            for (const param of pendingOp.operation.parameters || []) {
+              const baseType = param.type.replace(/[[\]!]/g, '');
+              const inputTypeDef = inputTypes.get(baseType);
+
+              if (inputTypeDef) {
+                schemaDescriptions.push(`
+${param.name} (type: ${param.type}):
+  Fields: ${JSON.stringify(inputTypeDef.fields || inputTypeDef.values || {}, null, 2)}`);
+              }
+            }
+
+            if (schemaDescriptions.length > 0) {
+              paramSchemas = `\n\nACTUAL SCHEMA DEFINITIONS (USE THESE EXACT FIELD NAMES):
+${schemaDescriptions.join('\n')}`;
+            }
+          }
+        } catch {
+          this.logger.warn(
+            'Failed to load schema for parameter parsing, using generic parsing',
+          );
+        }
+      }
+
+      // Use OpenAI to parse the user's natural language response into structured parameters
+      const systemPrompt = `You are parsing a user's response into API parameters.
+
+Operation: ${pendingOp.toolName}
+Already collected parameters: ${JSON.stringify(pendingOp.collectedParams, null, 2)}
+
+User said: "${userResponse}"${paramSchemas}
+
+Your task: Parse this natural language into structured API parameters.
+
+CRITICAL: If schema definitions are provided above, you MUST use the EXACT field names shown in the schema.
+Do NOT invent field names. Use only what is defined in the schema.
+
+Examples of parsing (adjust based on actual schema):
+- "city like West Val" → {filter: {city: {contains: "West Val"}}}
+- "10 per page" → Use schema field names (e.g., {paging: {first: 10}} if schema has "first")
+- "all" or "no filter" → {}
+- "sorted by name ascending" → {sorting: [{field: "name", direction: "ASC"}]}
+
+IMPORTANT:
+- Return ONLY valid JSON
+- Use EXACT field names from the schema above (if provided)
+- If user wants defaults or "all", return empty object {}
+- For cursor pagination: use "first", "last", "after", "before" (not "limit"/"offset")
+- For offset pagination: use "limit" and "offset"
+- Check the schema to know which pagination style to use`;
+
+      const response = await this.openAIService.createCompletion(
+        [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userResponse },
+        ],
+        { temperature: 0.1, response_format: { type: 'json_object' } },
+      );
+
+      let parsedParams: Record<string, any> = {};
+      try {
+        parsedParams = JSON.parse(response || '{}');
+      } catch {
+        this.logger.warn(
+          'Failed to parse AI response as JSON, using empty object',
+        );
+      }
+
+      // Merge with already collected params
+      const updatedParams = { ...pendingOp.collectedParams, ...parsedParams };
+
+      // Update the pending operation
+      this.conversationService.updatePendingOperation(email, {
+        collectedParams: updatedParams,
+      });
+
+      // Check if we should execute or ask for more
+      const hasAllRequired = pendingOp.requiredParams.every(
+        (p: string) => updatedParams[p] !== undefined,
+      );
+
+      // For operations with only optional params, we can execute immediately if user provided something
+      if (hasAllRequired || Object.keys(updatedParams).length > 0) {
+        // Execute the operation
+        return await this.executeWithCollectedParams(
+          email,
+          pendingOp,
+          updatedParams,
+        );
+      }
+
+      // Still need more parameters - ask for the next one
+      return await this.askForNextParameter(email, pendingOp, userResponse);
+    } catch (error: any) {
+      this.logger.error('Failed to continue parameter collection:', error);
+      // Clear pending operation on error
+      this.conversationService.clearPendingOperation(email);
+      return {
+        error: 'Failed to process your response. Please try again.',
+      };
+    }
+  }
+
+  /**
+   * Ask for next parameter
+   * Phase 4: OpenAI-driven parameter questions
+   */
+  private async askForNextParameter(
+    email: string,
+    pendingOp: any,
+    context: string,
+  ): Promise<any> {
+    try {
+      const collected = pendingOp.collectedParams || {};
+      const requiredStillNeeded = pendingOp.requiredParams.filter(
+        (p: string) => !collected[p],
+      );
+      const optionalStillNeeded = pendingOp.optionalParams.filter(
+        (p: string) => !collected[p],
+      );
+
+      const systemPrompt = `You are helping a user provide parameters for an API call.
+
+Operation: ${pendingOp.toolName}
+Original request: "${pendingOp.originalRequest || context}"
+Already collected: ${JSON.stringify(collected, null, 2)}
+
+Parameters still needed:
+Required: ${requiredStillNeeded.length > 0 ? requiredStillNeeded.join(', ') : 'None'}
+Optional: ${optionalStillNeeded.join(', ')}
+
+Your task: Ask the user ONE friendly question about the MOST IMPORTANT missing parameter.
+
+Guidelines:
+- If REQUIRED params are missing, ask about those first
+- If no required params, ask about the most useful optional parameter
+- Keep it conversational and natural
+- Suggest common options or examples
+- Don't ask for ALL parameters at once
+- Make it clear what you're asking for
+
+Examples of good questions:
+- "Would you like to filter these by city, state, or zip code? Or should I show you all results?"
+- "How many results would you like? I can show the first 10, 50, 100, or all."
+- "Would you like these sorted in any particular way, like by name or date?"
+
+Generate a friendly question now:`;
+
+      const response = await this.openAIService.createCompletion(
+        [{ role: 'system', content: systemPrompt }],
+        { temperature: 0.7, max_tokens: 150 },
+      );
+
+      return {
+        needsMoreInfo: true,
+        message: response,
+        collectingParameters: true,
+        operation: pendingOp.toolName,
+      };
+    } catch (error: any) {
+      this.logger.error('Failed to ask for next parameter:', error);
+      this.conversationService.clearPendingOperation(email);
+      return {
+        error: 'Failed to generate question. Please try again.',
+      };
+    }
+  }
+
+  /**
+   * Execute operation with collected parameters
+   * Phase 6: Execute with collected parameters
+   */
+  private async executeWithCollectedParams(
+    email: string,
+    pendingOp: any,
+    collectedParams: Record<string, any>,
+  ): Promise<any> {
+    try {
+      this.logger.log(
+        `Executing ${pendingOp.toolName} with params: ${JSON.stringify(collectedParams)}`,
+      );
+
+      // Clear pending operation
+      this.conversationService.clearPendingOperation(email);
+
+      // Get API tools to find the operation
+      const { apiToolMap } = await this.getAllAPITools();
+
+      // Execute the tool call
+      return await this.executeToolCall(
+        pendingOp.toolName,
+        collectedParams,
+        apiToolMap,
+      );
+    } catch (error: any) {
+      this.logger.error('Failed to execute with collected params:', error);
+      return {
+        error: 'Failed to execute operation. Please try again.',
+      };
+    }
   }
 }
