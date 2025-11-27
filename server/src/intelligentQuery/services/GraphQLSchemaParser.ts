@@ -164,6 +164,111 @@ export class GraphQLSchemaParser {
   }
 
   /**
+   * Analyze parameter structure for nested/recursive relationships
+   * Returns information about parameter depth and cyclic dependencies
+   */
+  analyzeParameterStructure(
+    schemaContent: string,
+    parameterType: string,
+    visited: Set<string> = new Set(),
+    depth: number = 0,
+  ): ParameterStructureAnalysis {
+    const maxDepth = 5;
+    const cleanType = parameterType.replace(/[[\]!]/g, '').trim();
+
+    // Initialize analysis
+    const analysis: ParameterStructureAnalysis = {
+      typeName: cleanType,
+      depth,
+      isCyclic: visited.has(cleanType),
+      hasNestedStructure: false,
+      nestedTypes: [],
+      optionalFields: [],
+      requiredFields: [],
+      maxPossibleDepth: depth,
+    };
+
+    // Check for cycles
+    if (visited.has(cleanType)) {
+      return analysis;
+    }
+
+    // Check max depth
+    if (depth >= maxDepth) {
+      analysis.reachedMaxDepth = true;
+      return analysis;
+    }
+
+    // Get input type definition
+    const inputTypes = this.extractInputTypes(schemaContent);
+    const inputType = inputTypes.get(cleanType);
+
+    if (!inputType || inputType.isEnum) {
+      return analysis;
+    }
+
+    // Mark as visited
+    const newVisited = new Set(visited);
+    newVisited.add(cleanType);
+
+    // Analyze fields
+    if (inputType.fields) {
+      for (const [fieldName, fieldType] of Object.entries(
+        inputType.fields as Record<string, string>,
+      )) {
+        const isRequired = (fieldType as string).includes('!');
+        const cleanFieldType = (fieldType as string)
+          .replace(/[[\]!]/g, '')
+          .trim();
+
+        if (isRequired) {
+          analysis.requiredFields.push(fieldName);
+        } else {
+          analysis.optionalFields.push(fieldName);
+        }
+
+        // Check if field is a complex type (not scalar)
+        const scalarTypes = [
+          'String',
+          'Int',
+          'Float',
+          'Boolean',
+          'ID',
+          'DateTime',
+        ];
+        if (!scalarTypes.includes(cleanFieldType)) {
+          analysis.hasNestedStructure = true;
+
+          // Recursively analyze nested type
+          const nestedAnalysis = this.analyzeParameterStructure(
+            schemaContent,
+            cleanFieldType,
+            newVisited,
+            depth + 1,
+          );
+
+          analysis.nestedTypes.push({
+            fieldName,
+            analysis: nestedAnalysis,
+          });
+
+          // Track max depth
+          if (nestedAnalysis.maxPossibleDepth > analysis.maxPossibleDepth) {
+            analysis.maxPossibleDepth = nestedAnalysis.maxPossibleDepth;
+          }
+
+          // Check if nested type is cyclic
+          if (nestedAnalysis.isCyclic) {
+            analysis.hasCyclicDependencies = true;
+          }
+        }
+      }
+    }
+
+    return analysis;
+  }
+
+  /**
    * Extract INPUT type definitions from GraphQL schema
    */
   extractInputTypes(schemaContent: string): Map<string, any> {
@@ -407,4 +512,20 @@ export interface GraphQLParameter {
   name: string;
   type: string;
   required: boolean;
+}
+
+export interface ParameterStructureAnalysis {
+  typeName: string;
+  depth: number;
+  isCyclic: boolean;
+  hasNestedStructure: boolean;
+  nestedTypes: Array<{
+    fieldName: string;
+    analysis: ParameterStructureAnalysis;
+  }>;
+  optionalFields: string[];
+  requiredFields: string[];
+  maxPossibleDepth: number;
+  reachedMaxDepth?: boolean;
+  hasCyclicDependencies?: boolean;
 }

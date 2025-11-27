@@ -74,6 +74,23 @@ export class IntelligentRouterService {
         topMatches.length > 1 &&
         topMatches[0].score === topMatches[1].score
       ) {
+        // Store the original request and available operations for later
+        if (email) {
+          this.conversationService.setPendingOperation(email, {
+            toolName: 'AWAITING_CHOICE',
+            apiName: '',
+            operation: null,
+            collectedParams: {},
+            requiredParams: [],
+            optionalParams: [],
+            originalRequest: userPrompt,
+            availableOperations: topMatches.map((m) => ({
+              toolName: m.tool.function.name,
+              apiInfo: apiToolMap.get(m.tool.function.name),
+            })),
+          } as any);
+        }
+
         return {
           needsMoreInfo: true,
           collectingParameters: true,
@@ -271,17 +288,21 @@ export class IntelligentRouterService {
         }
       }
 
-      // Exact operation type match
+      // Exact operation type match - BOOST SIGNIFICANTLY to avoid ties
       if (promptLower.includes('list') && toolName.startsWith('list'))
-        score += 30;
+        score += 100;
       if (promptLower.includes('get') && toolName.startsWith('get'))
-        score += 30;
+        score += 100;
       if (promptLower.includes('create') && toolName.startsWith('create'))
-        score += 30;
+        score += 100;
+      if (promptLower.includes('generate') && toolName.includes('generate'))
+        score += 100;
       if (promptLower.includes('update') && toolName.startsWith('update'))
-        score += 30;
+        score += 100;
       if (promptLower.includes('delete') && toolName.startsWith('delete'))
-        score += 30;
+        score += 100;
+      if (promptLower.includes('grade') && toolName.includes('grade'))
+        score += 100;
 
       return { tool, score };
     });
@@ -367,6 +388,17 @@ ${paramType} (enum):
               schemaContext.push(`
 ${paramType} (input type):
   Fields: ${JSON.stringify(inputTypeDef.fields, null, 2)}`);
+              
+              // For input types, also load ENUMs referenced in fields
+              for (const [fieldName, fieldType] of Object.entries(inputTypeDef.fields || {})) {
+                const cleanFieldType = (fieldType as string).replace(/[[\]!]/g, '').trim();
+                const fieldTypeDef = inputTypes.get(cleanFieldType);
+                if (fieldTypeDef?.isEnum && !parameterTypes.has(cleanFieldType)) {
+                  schemaContext.push(`
+${cleanFieldType} (enum - used in ${paramType}.${fieldName}):
+  Valid values: ${fieldTypeDef.values.join(', ')}`);
+                }
+              }
             }
           }
         }
@@ -719,40 +751,9 @@ Remember: Your job is to ROUTE to API functions, not to perform the task yoursel
         ? operation.parameters && operation.parameters.length > 0
         : operation.requestBody || operation.parameters;
 
-    // If has OPTIONAL parameters but none provided, start conversation
-    if (
-      hasParameters &&
-      Object.keys(args).length === 0 &&
-      optionalParams.length > 0 &&
-      context?.email
-    ) {
-      const email = context.email;
-
-      // Start parameter collection for optional params
-      this.conversationService.setPendingOperation(email, {
-        toolName,
-        apiName,
-        operation,
-        collectedParams: {},
-        requiredParams: [],
-        optionalParams,
-        originalRequest: context.originalRequest || toolName,
-      });
-
-      // Ask about optional parameters
-      return await this.askForNextParameter(
-        email,
-        {
-          toolName,
-          apiName,
-          operation,
-          collectedParams: {},
-          requiredParams: [],
-          optionalParams,
-        },
-        '',
-      );
-    }
+    // DON'T start conversation for optional-only parameters
+    // Let the operation execute with defaults instead
+    // This prevents misleading "required" parameter messages
 
     try {
       let result;
@@ -940,16 +941,17 @@ Remember: Your job is to ROUTE to API functions, not to perform the task yoursel
       const isLikelyEnum =
         /^[A-Z][A-Z_]*$/.test(value) || /^[A-Z][a-zA-Z]*$/.test(value);
 
-      // Special case: direction field is always an enum (ASC/DESC)
+      // Special cases: These fields are always enums
       const isDirectionField = fieldName === 'direction';
+      const isFieldField = fieldName === 'field'; // Sorting field names are enums
 
-      if (isLikelyEnum || isDirectionField) {
+      if (isLikelyEnum || isDirectionField || isFieldField) {
         // Don't quote enum values
         return value;
       }
 
       // Regular strings get quoted
-      return `"${value.replace(/"/g, '\\"')}"`;
+      return `\"${value.replace(/\"/g, '\\\\\"')}\"`;
     }
 
     if (typeof value === 'number' || typeof value === 'boolean') {
@@ -1170,25 +1172,45 @@ ${JSON.stringify(parameterSchemas, null, 2)}
 **Your Task:**
 Transform the original parameters to match the exact schema structure.
 
+**CRITICAL RULES:**
+1. Use ONLY field names that exist in the schema - DELETE any fields not in schema
+2. For ENUMs, convert to UPPERCASE (e.g., "asc" → "ASC", "desc" → "DESC")
+3. For sorting field enums, use ONLY values from the schema enum definition
+4. If a field doesn't exist in the schema, REMOVE IT completely
+5. If cursor pagination (first/last/after/before), REMOVE offset/limit fields
+6. For nested filters, use the exact nested structure from schema
+
+**Validation Steps:**
+1. Check each field name against the schema - if not found, DELETE IT
+2. Check each enum value - if not valid, use the first valid value from schema or DELETE
+3. Convert all enum values to UPPERCASE
+4. For nested filters (e.g., address.state), use nested object structure
+
 **Common Transformations:**
-- "limit" → Check schema for pagination field (e.g., "paging.first", "take", "pageSize")
-- "offset" → Check schema for offset field (e.g., "paging.after", "skip", "page")
-- "filter" → Keep as "filter" if schema has it, map contents to schema filter fields
-- "sort" → Check schema for sorting field (e.g., "sorting", "orderBy", "sort")
+- limit + offset → {"paging": {"first": <limit>}} (REMOVE offset)
+- "asc"/"desc" → "ASC"/"DESC" (UPPERCASE)
+- Invalid field name → DELETE the field entirely
+- Invalid enum value → Use first valid enum value or DELETE
 
-**Rules:**
-1. Use ONLY field names that exist in the schema
-2. Match the exact nesting structure from INPUT types
-3. If a generic field maps to multiple schema fields, create the correct object structure
-4. If no clear mapping exists, keep the original field
-5. Return valid JSON
+**Examples:**
 
-**Example:**
-Input: {"limit": 10, "filter": {"city": {"contains": "Salt"}}}
-Schema has: paging: {first: Int, after: String}, filter: {city: StringFieldComparison}
-Output: {"paging": {"first": 10}, "filter": {"city": {"contains": "Salt"}}}
+Example 1 (Invalid field):
+Input: {"filter": {"state": {"like": "UT"}}}
+Schema fields: title, storenumber, email, addressId, address
+Output: {"filter": {}} (state doesn't exist, so remove it)
 
-Transform now:`;
+Example 2 (Nested filter):
+Input: {"filter": {"state": {"like": "UT"}}}
+Schema has nested: address: {state: StringFieldComparison}
+Output: {"filter": {"address": {"state": {"like": "UT"}}}}
+
+Example 3 (Invalid sort field + lowercase enum):
+Input: {"sorting": [{"field": "city", "direction": "asc"}]}
+Schema enum values: title, storenumber, phoneNumberId (NOT city)
+Output: {"sorting": [{"field": "title", "direction": "ASC"}]}
+Note: Use first valid enum value and UPPERCASE direction
+
+Return ONLY valid JSON matching the schema:`;
 
       const response = await this.openAIService.createCompletion(
         [{ role: 'system', content: mappingPrompt }],
@@ -1244,6 +1266,94 @@ Transform now:`;
     pendingOp: any,
   ): Promise<any> {
     try {
+      // Special case: User is choosing between multiple operations
+      if (pendingOp.toolName === 'AWAITING_CHOICE') {
+        // Try to match user response to one of the available operations
+        // Support both exact operation names AND natural language descriptions
+        const chosenOperation = pendingOp.availableOperations?.find(
+          (op: any) => {
+            const responseLower = userResponse.toLowerCase();
+            const toolNameLower = op.toolName.toLowerCase();
+            
+            // Exact match or contains operation name
+            if (responseLower === toolNameLower || responseLower.includes(toolNameLower)) {
+              return true;
+            }
+            
+            // Match action words in natural language
+            // e.g., "generate a new quiz" matches "GenerateQuizController_generate"
+            if (responseLower.includes('generate') && toolNameLower.includes('generate')) {
+              return true;
+            }
+            if (responseLower.includes('grade') && toolNameLower.includes('grade')) {
+              return true;
+            }
+            if (responseLower.includes('list') && toolNameLower.includes('list')) {
+              return true;
+            }
+            if (responseLower.includes('create') && toolNameLower.includes('create')) {
+              return true;
+            }
+            
+            return false;
+          }
+        );
+
+        if (chosenOperation && pendingOp.originalRequest) {
+          this.logger.log(
+            `User chose ${chosenOperation.toolName}, extracting params from: ${pendingOp.originalRequest}`,
+          );
+
+          // Load schema for the chosen operation
+          const operation = chosenOperation.apiInfo.operation;
+          
+          // Use AI to extract parameters from the original request
+          const extractionPrompt = `Extract API parameters from this natural language request.
+
+User request: "${pendingOp.originalRequest}"
+
+Target operation: ${chosenOperation.toolName}
+Operation parameters: ${operation.parameters?.map((p: any) => `${p.name}: ${p.type}`).join(', ') || 'None'}
+
+Extract ONLY the parameters mentioned in the request. Return JSON.
+
+Examples:
+- "paging 50" → {"paging": {"first": 50}}
+- "filter for state UT" → {"filter": {"state": {"like": "UT"}}}
+- "sort by city ASC" → {"sorting": [{"field": "city", "direction": "ASC"}]}
+
+Return ONLY valid JSON with extracted parameters:`;
+
+          const extractedArgsResponse = await this.openAIService.createCompletion(
+            [{ role: 'system', content: extractionPrompt }],
+            { temperature: 0.1, response_format: { type: 'json_object' } },
+          );
+
+          let extractedArgs: Record<string, any> = {};
+          try {
+            extractedArgs = JSON.parse(extractedArgsResponse || '{}');
+          } catch {
+            this.logger.warn('Failed to parse extracted args, using empty object');
+          }
+
+          this.logger.log(`Extracted args: ${JSON.stringify(extractedArgs)}`);
+
+          // Clear pending operation
+          this.conversationService.clearPendingOperation(email);
+
+          // Get all API tools to find the operation
+          const { apiToolMap } = await this.getAllAPITools();
+
+          // Execute the chosen operation directly with extracted params
+          return await this.executeToolCall(
+            chosenOperation.toolName,
+            extractedArgs,
+            apiToolMap,
+            { email, originalRequest: pendingOp.originalRequest },
+          );
+        }
+      }
+
       // Load GraphQL schema if this is a GraphQL API to get exact INPUT type definitions
       let paramSchemas = '';
       if (
@@ -1362,8 +1472,8 @@ IMPORTANT:
   }
 
   /**
-   * Ask for next parameter
-   * Phase 4: OpenAI-driven parameter questions
+   * Ask for next parameter with COMPLETE awareness of all options
+   * Phase 4 Enhanced: Analyzes parameter structure for nested/cyclic relationships
    */
   private async askForNextParameter(
     email: string,
@@ -1379,36 +1489,100 @@ IMPORTANT:
         (p: string) => !collected[p],
       );
 
-      const systemPrompt = `You are helping a user provide parameters for an API call.
+      // Analyze parameter structure for GraphQL operations
+      let parameterAnalysis = '';
+      if (
+        (pendingOp.operation?.type === 'query' ||
+          pendingOp.operation?.type === 'mutation') &&
+        optionalStillNeeded.length > 0
+      ) {
+        try {
+          const schema = await this.apiManager.loadAPIDocumentation(
+            pendingOp.apiName,
+          );
+          if (typeof schema === 'string') {
+            const analysisResults: any[] = [];
 
-Operation: ${pendingOp.toolName}
-Original request: "${pendingOp.originalRequest || context}"
-Already collected: ${JSON.stringify(collected, null, 2)}
+            // Analyze each optional parameter
+            for (const paramName of optionalStillNeeded) {
+              const param = pendingOp.operation.parameters?.find(
+                (p: any) => p.name === paramName,
+              );
+              if (param) {
+                const analysis = this.graphQLParser.analyzeParameterStructure(
+                  schema,
+                  param.type,
+                );
 
-Parameters still needed:
-Required: ${requiredStillNeeded.length > 0 ? requiredStillNeeded.join(', ') : 'None'}
-Optional: ${optionalStillNeeded.join(', ')}
+                analysisResults.push({
+                  name: paramName,
+                  type: param.type,
+                  analysis,
+                });
+              }
+            }
 
-Your task: Ask the user ONE friendly question about the MOST IMPORTANT missing parameter.
+            // Build parameter analysis summary
+            if (analysisResults.length > 0) {
+              const summaries = analysisResults.map((result) => {
+                let summary = `\n${result.name} (${result.type}):`;
 
-Guidelines:
-- If REQUIRED params are missing, ask about those first
-- If no required params, ask about the most useful optional parameter
-- Keep it conversational and natural
-- Suggest common options or examples
-- Don't ask for ALL parameters at once
-- Make it clear what you're asking for
+                if (result.analysis.hasNestedStructure) {
+                  summary += `\n  - Has nested structure with ${result.analysis.nestedTypes.length} nested types`;
+                  summary += `\n  - Max depth: ${result.analysis.maxPossibleDepth}`;
 
-Examples of good questions:
-- "Would you like to filter these by city, state, or zip code? Or should I show you all results?"
-- "How many results would you like? I can show the first 10, 50, 100, or all."
-- "Would you like these sorted in any particular way, like by name or date?"
+                  if (result.analysis.hasCyclicDependencies) {
+                    summary += `\n  - ⚠️  Contains cyclic/recursive relationships`;
+                  }
+                }
 
-Generate a friendly question now:`;
+                if (result.analysis.optionalFields.length > 0) {
+                  summary += `\n  - Optional fields: ${result.analysis.optionalFields.join(', ')}`;
+                }
+
+                if (result.analysis.requiredFields.length > 0) {
+                  summary += `\n  - Required fields: ${result.analysis.requiredFields.join(', ')}`;
+                }
+
+                return summary;
+              });
+
+              parameterAnalysis = `\n\nDETAILED PARAMETER STRUCTURE:${summaries.join('\n')}`;
+            }
+          }
+        } catch (error) {
+          this.logger.warn(
+            'Failed to analyze parameter structure, using basic prompting',
+          );
+        }
+      }
+
+      // Build a simple, direct prompt based on what parameters are actually missing
+      let systemPrompt: string;
+      
+      if (requiredStillNeeded.length > 0) {
+        // Simple, direct ask for required params - don't invent options
+        systemPrompt = `Ask the user for the required parameter: ${requiredStillNeeded[0]}
+
+Keep it brief and direct. Do NOT mention or invent optional parameters that don't exist in the schema.
+
+Example: "What topic would you like the quiz to be about?"`;
+      } else if (optionalStillNeeded.length > 0) {
+        // For optional params, list what's actually available from the schema
+        systemPrompt = `The user has provided all required parameters. There are optional parameters available:
+${optionalStillNeeded.join(', ')}${parameterAnalysis}
+
+Ask if they want to configure these optional parameters or proceed with defaults.
+
+CRITICAL: Do NOT invent parameters. Only mention the parameters listed above.`;
+      } else {
+        // No params needed - shouldn't reach here
+        systemPrompt = `All parameters collected. Ready to execute.`;
+      }
 
       const response = await this.openAIService.createCompletion(
         [{ role: 'system', content: systemPrompt }],
-        { temperature: 0.7, max_tokens: 150 },
+        { temperature: 0.7, max_tokens: 300 },
       );
 
       return {
@@ -1416,6 +1590,11 @@ Generate a friendly question now:`;
         message: response,
         collectingParameters: true,
         operation: pendingOp.toolName,
+        availableParameters: {
+          required: requiredStillNeeded,
+          optional: optionalStillNeeded,
+          collected: Object.keys(collected),
+        },
       };
     } catch (error: any) {
       this.logger.error('Failed to ask for next parameter:', error);

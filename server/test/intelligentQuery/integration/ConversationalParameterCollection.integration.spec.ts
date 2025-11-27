@@ -430,8 +430,166 @@ describe('Conversational Parameter Collection Integration Tests', () => {
     });
   });
 
-  describe('Scenario 4: Complex filter with pagination', () => {
+  describe('Scenario 4: Choosing between multiple operations', () => {
     const email = 'test4@example.com';
+
+    it('should preserve parameters when user chooses between eswAddresses and eswUserAddresses', async () => {
+      const mockSchema = `
+        type Query {
+          eswAddresses(
+            paging: CursorPaging
+            filter: AddressFilter
+            sorting: [AddressSort!]
+          ): AddressConnection!
+          
+          eswUserAddresses(
+            paging: CursorPaging
+            filter: UserAddressFilter
+          ): UserAddressConnection!
+        }
+        
+        input CursorPaging {
+          first: Int
+          last: Int
+          after: String
+          before: String
+        }
+        
+        input AddressFilter {
+          city: StringFieldComparison
+          state: StringFieldComparison
+        }
+        
+        input UserAddressFilter {
+          userId: IntFieldComparison
+        }
+        
+        input StringFieldComparison {
+          like: String
+          iLike: String
+          eq: String
+        }
+        
+        input IntFieldComparison {
+          eq: Int
+        }
+        
+        input AddressSort {
+          field: AddressSortFields!
+          direction: SortDirection!
+        }
+        
+        enum AddressSortFields {
+          city
+          state
+          zipCode
+        }
+        
+        enum SortDirection {
+          ASC
+          DESC
+        }
+      `;
+
+      (mockAPIManager.loadAPIDocumentation as jest.Mock).mockResolvedValue(
+        mockSchema,
+      );
+      (mockAPIManager.getAPIConfig as jest.Mock).mockReturnValue({
+        type: 'graphql',
+      });
+
+      // First request: AI can't decide between eswAddresses and eswUserAddresses
+      // This simulates the filtering finding both with equal scores
+      (mockOpenAIService.createFunctionCallingCompletion as jest.Mock)
+        .mockResolvedValueOnce({
+          // First call returns no tool_calls, simulating ambiguity
+          content: 'I found multiple operations...',
+        });
+
+      const firstResponse = await service.processRequest(
+        'get addresses, paging 50, filter for state UT, sort by city ASC',
+        { email },
+      );
+
+      // Should ask user to choose (this part simulates the filtering logic finding 2 matches)
+      // In practice, this would be done by the filterRelevantTools returning 2 top matches with same score
+      
+      // Second request: User chooses eswAddresses
+      // Mock parameter extraction
+      (mockOpenAIService.createCompletion as jest.Mock)
+        .mockResolvedValueOnce(JSON.stringify({
+          paging: { first: 50 },
+          filter: { state: { like: 'UT' } },
+          sorting: [{ field: 'city', direction: 'ASC' }]
+        }))
+        // Mock transformation if needed
+        .mockResolvedValueOnce(JSON.stringify({
+          paging: { first: 50 },
+          filter: { state: { like: 'UT' } },
+          sorting: [{ field: 'city', direction: 'ASC' }]
+        }));
+
+      (mockAPIExecutor.executeGraphQLRequest as jest.Mock).mockResolvedValue({
+        data: { eswAddresses: { edges: [] } },
+        success: true,
+      });
+
+      // Manually set up the AWAITING_CHOICE state to test the fix
+      conversationService.setPendingOperation(email, {
+        toolName: 'AWAITING_CHOICE',
+        apiName: '',
+        operation: null,
+        collectedParams: {},
+        requiredParams: [],
+        optionalParams: [],
+        originalRequest: 'get addresses, paging 50, filter for state UT, sort by city ASC',
+        availableOperations: [
+          {
+            toolName: 'eswAddresses',
+            apiInfo: {
+              apiName: 'test-api',
+              operation: {
+                type: 'query',
+                name: 'eswAddresses',
+                returnType: 'AddressConnection',
+                parameters: [
+                  { name: 'paging', type: 'CursorPaging', required: false },
+                  { name: 'filter', type: 'AddressFilter', required: false },
+                  { name: 'sorting', type: '[AddressSort!]', required: false }
+                ]
+              }
+            }
+          },
+          {
+            toolName: 'eswUserAddresses',
+            apiInfo: {
+              apiName: 'test-api',
+              operation: {
+                type: 'query',
+                name: 'eswUserAddresses',
+                returnType: 'UserAddressConnection',
+                parameters: []
+              }
+            }
+          }
+        ]
+      } as any);
+
+      const secondResponse = await service.processRequest('eswAddresses', { email });
+
+      // Should execute with extracted parameters from original request
+      expect(secondResponse.success).toBe(true);
+      expect(secondResponse.function).toBe('eswAddresses');
+      expect(secondResponse.arguments).toBeDefined();
+      
+      // Should clear pending operation
+      const pendingOp = conversationService.getPendingOperation(email);
+      expect(pendingOp).toBeUndefined();
+    });
+  });
+
+  describe('Scenario 5: Complex filter with pagination', () => {
+    const email = 'test5@example.com';
 
     it('should handle "list first 3 locations in city like Salt"', async () => {
       const mockSchema = `

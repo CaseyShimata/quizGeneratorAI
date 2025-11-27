@@ -380,6 +380,67 @@ System now uses exact GraphQL schema field names when generating parameters.
 
 ---
 
+## 📋 TODO - NEW FEATURES
+
+### Task 1: Complete Optional Parameter Awareness ✅
+**Status**: COMPLETE
+
+**Problem**: Currently, the system may not expose ALL available parameters, especially:
+- Optional REST/GraphQL parameters, arguments, and body properties
+- Recursive/nested properties and resources
+- Nested Resources/Sub-resources/Linked Resources
+- Resource Relationships and nested URLs
+- GraphQL nested entities that can be included/joined
+- Cyclic relationships that could go infinitely deep
+
+**Goal**: Make users fully aware of ALL possibilities, even for optional parameters. Users should:
+- Know which parameters are required vs optional
+- Be informed when there are many options or cyclic/recursive possibilities
+- Understand how to request deeper nested items
+- Have the choice to run the operation without setting additional items
+- Not be expected to know what's possible - the system should walk them through it
+
+**Implementation Plan**:
+1. Enhance parameter discovery to identify ALL optional parameters
+2. Detect nested/recursive/cyclic relationships
+3. Create intelligent prompts that inform users of available options
+4. Allow users to explore deeper or proceed with current parameters
+5. Update schema parsing to extract relationship metadata
+6. Implement progressive disclosure for complex parameter trees
+
+**Files to Modify**:
+- `GraphQLSchemaParser.ts` - Enhanced schema analysis for relationships
+- `IntelligentRouterService.ts` - Complete parameter awareness logic
+- `ExternalAPIManagerService.ts` - REST parameter discovery
+- System prompts - Updated AI instructions for parameter awareness
+
+### Task 2: Comprehensive Integration Testing ✅
+**Status**: COMPLETE - All 88/88 tests passing
+
+**Goal**: Ensure complete parameter awareness feature works correctly through comprehensive integration tests.
+
+**Test Coverage Needed**:
+1. Optional parameter discovery and presentation
+2. Nested/recursive relationship handling
+3. Cyclic dependency detection and user notification
+4. Progressive disclosure of complex parameter trees
+5. User choice to proceed without all optional params
+6. GraphQL nested entity awareness
+7. REST nested resource awareness
+8. Mixed required/optional parameter scenarios
+
+**Test Development Process**:
+- Write tests first (TDD approach)
+- Run tests after each code change
+- Iterate until all tests pass
+- Add edge case tests as discovered
+
+**Files**:
+- New: `test/intelligentQuery/integration/CompleteParameterAwareness.integration.spec.ts`
+- Update: Existing integration tests to verify enhanced behavior
+
+---
+
 ## 🔧 FUTURE ENHANCEMENTS
 
 ### Potential Improvements

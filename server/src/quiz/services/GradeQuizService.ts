@@ -6,7 +6,6 @@ import {
   UserQuiz,
   UserQuizDocument,
   QuestionSelectedAnswers,
-  Answer,
 } from '../entities/index';
 
 /**
@@ -47,7 +46,6 @@ class GradeQuizService {
         const errorMessage = `Quiz item not found for questionId: ${questionSelectedAnswers.questionId}`;
         this.logger.error(errorMessage, {
           email,
-          quizId: quiz.id,
           questionId: questionSelectedAnswers.questionId,
           stackTrace: new Error().stack,
         });
