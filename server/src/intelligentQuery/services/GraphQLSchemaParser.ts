@@ -326,6 +326,114 @@ export class GraphQLSchemaParser {
   }
 
   /**
+   * Extract comparison operators from a comparison type (e.g., StringFieldComparison)
+   * Returns available operators grouped by category
+   */
+  extractComparisonOperators(
+    schemaContent: string,
+    comparisonTypeName: string,
+  ): {
+    patternMatch: string[]; // like, iLike, contains
+    exactMatch: string[]; // eq, neq
+    rangeMatch: string[]; // gt, gte, lt, lte
+    listMatch: string[]; // in, notIn
+    all: string[];
+  } {
+    const result = {
+      patternMatch: [] as string[],
+      exactMatch: [] as string[],
+      rangeMatch: [] as string[],
+      listMatch: [] as string[],
+      all: [] as string[],
+    };
+
+    // Find the input type definition
+    const inputRegex = new RegExp(
+      `input\\s+${comparisonTypeName}\\s*\\{([^}]+)\\}`,
+      's',
+    );
+    const match = inputRegex.exec(schemaContent);
+
+    if (!match) {
+      return result;
+    }
+
+    const fieldsContent = match[1];
+    const fieldMap = this.parseInputFields(fieldsContent);
+
+    // Categorize operators
+    for (const fieldName of Object.keys(fieldMap)) {
+      result.all.push(fieldName);
+
+      // Pattern matching operators
+      if (['like', 'iLike', 'contains', 'notLike', 'notILike'].includes(fieldName)) {
+        result.patternMatch.push(fieldName);
+      }
+      // Exact match operators
+      else if (['eq', 'neq', 'is', 'isNot'].includes(fieldName)) {
+        result.exactMatch.push(fieldName);
+      }
+      // Range operators
+      else if (['gt', 'gte', 'lt', 'lte', 'between', 'notBetween'].includes(fieldName)) {
+        result.rangeMatch.push(fieldName);
+      }
+      // List operators
+      else if (['in', 'notIn'].includes(fieldName)) {
+        result.listMatch.push(fieldName);
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Find the best matching field from schema for an invalid field name
+   * Returns null if no suitable match found
+   */
+  findBestFieldMatch(
+    invalidFieldName: string,
+    availableFields: string[],
+    intent: 'pattern' | 'exact' | 'range' | 'list' | 'auto' = 'auto',
+  ): string | null {
+    if (availableFields.includes(invalidFieldName)) {
+      return invalidFieldName; // Already valid
+    }
+
+    // Auto-detect intent from field name
+    if (intent === 'auto') {
+      if (['contains', 'like', 'ilike', 'match', 'search'].includes(invalidFieldName.toLowerCase())) {
+        intent = 'pattern';
+      } else if (['equals', 'eq', 'is'].includes(invalidFieldName.toLowerCase())) {
+        intent = 'exact';
+      }
+    }
+
+    // Pattern matching intent - prefer like > iLike > contains > eq
+    // Note: 'like' works with both PostgreSQL and Oracle, 'iLike' only works with PostgreSQL
+    if (intent === 'pattern') {
+      const preferenceOrder = ['like', 'iLike', 'contains', 'eq'];
+      for (const preferred of preferenceOrder) {
+        if (availableFields.includes(preferred)) {
+          return preferred;
+        }
+      }
+    }
+
+    // Exact match intent
+    if (intent === 'exact') {
+      const preferenceOrder = ['eq', 'is'];
+      for (const preferred of preferenceOrder) {
+        if (availableFields.includes(preferred)) {
+          return preferred;
+        }
+      }
+    }
+
+    // No match found
+    return null;
+  }
+
+  /**
    * Build OpenAI function tool from GraphQL operation
    */
   buildToolFromOperation(

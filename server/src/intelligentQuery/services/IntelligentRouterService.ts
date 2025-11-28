@@ -388,12 +388,19 @@ ${paramType} (enum):
               schemaContext.push(`
 ${paramType} (input type):
   Fields: ${JSON.stringify(inputTypeDef.fields, null, 2)}`);
-              
+
               // For input types, also load ENUMs referenced in fields
-              for (const [fieldName, fieldType] of Object.entries(inputTypeDef.fields || {})) {
-                const cleanFieldType = (fieldType as string).replace(/[[\]!]/g, '').trim();
+              for (const [fieldName, fieldType] of Object.entries(
+                inputTypeDef.fields || {},
+              )) {
+                const cleanFieldType = (fieldType as string)
+                  .replace(/[[\]!]/g, '')
+                  .trim();
                 const fieldTypeDef = inputTypes.get(cleanFieldType);
-                if (fieldTypeDef?.isEnum && !parameterTypes.has(cleanFieldType)) {
+                if (
+                  fieldTypeDef?.isEnum &&
+                  !parameterTypes.has(cleanFieldType)
+                ) {
                   schemaContext.push(`
 ${cleanFieldType} (enum - used in ${paramType}.${fieldName}):
   Valid values: ${fieldTypeDef.values.join(', ')}`);
@@ -422,7 +429,7 @@ ${cleanFieldType} (enum - used in ${paramType}.${fieldName}):
 1. ❌ NEVER use generic field names like: "limit", "offset", "filter", "sort"
 2. ✅ ONLY use field names EXACTLY as defined in the schema below
 3. ✅ Check the schema BEFORE generating ANY parameters
-4. ✅ For string filters, use "iLike" (case-insensitive) or "like" (case-sensitive), NEVER "contains"
+4. ✅ For string filters, use ONLY operators that exist in the schema (check StringFieldComparison type)
 5. ✅ For enums (like sort direction), use unquoted values: ASC or DESC (not "ASC" or "DESC")
 6. ✅ For pagination, use "first"/"last" with cursor pagination, NOT "limit"/"offset"
 7. ✅ Do NOT include "includePagingDetails" - pagination details are returned automatically
@@ -435,8 +442,10 @@ ${schemaContext.join('\n')}
 ❌ WRONG: {"limit": 10, "offset": 0}
 ✅ RIGHT: {"paging": {"first": 10}}
 
-❌ WRONG: {"filter": {"city": {"contains": "West"}}}
-✅ RIGHT: {"filter": {"city": {"iLike": "%West%"}}}
+❌ WRONG: {"filter": {"city": {"contains": "West"}}} (if "contains" not in schema)
+✅ RIGHT: {"filter": {"city": {"like": "%West%"}}} (if schema has "like")
+✅ RIGHT: {"filter": {"city": {"iLike": "%West%"}}} (if schema has "iLike")
+   Note: Check the schema above for available operators. Use % wildcards for pattern matching.
 
 ❌ WRONG: {"sorting": [{"field": "city", "direction": "ASC"}]}
 ✅ RIGHT: {"sorting": [{"field": city, "direction": ASC}]}
@@ -446,14 +455,24 @@ ${schemaContext.join('\n')}
 ✅ RIGHT: {"paging": {"first": 10}}
    Note: includePagingDetails doesn't exist in CursorPaging
 
-**String Filter Operators (StringFieldComparison):**
-- iLike: Case-insensitive pattern match (use % for wildcards)
-- like: Case-sensitive pattern match
-- eq: Exact match
+**String Filter Operators (StringFieldComparison type in schema):**
+Check the schema above to see which operators are available. Common operators:
+- like: Pattern match with % wildcards (works with most databases)
+  Example: {"like": "%salt%"} matches strings containing "salt"
+- iLike: Case-insensitive pattern match (PostgreSQL-specific, not Oracle-compatible)
+  Example: {"iLike": "%salt%"} matches "Salt Lake", "SALT", "salted"
+- eq: Exact match only
 - neq: Not equal
 - in: Value in list
 - notIn: Value not in list
-❌ NEVER use "contains" - it doesn't exist!
+
+⚠️  ALWAYS check which operators exist in the schema above before using them!
+⚠️  Prefer "like" over "iLike" for database compatibility (works with both PostgreSQL AND Oracle)
+
+**When user says "cities like X" or "contains X":**
+→ Check schema for available operators
+→ Prefer: {"like": "%X%"} (most compatible)
+→ Alternative: {"iLike": "%X%"} (only if schema has it AND you need case-insensitive)
 
 **Validation Checklist Before Calling Function:**
 □ Did I check the schema for this operation?
@@ -567,7 +586,8 @@ Remember: Your job is to ROUTE to API functions, not to perform the task yoursel
               this.graphQLParser.parseSchema(documentation);
 
             // Extract INPUT types for schema-aware tool generation
-            const inputTypes = this.graphQLParser.extractInputTypes(documentation);
+            const inputTypes =
+              this.graphQLParser.extractInputTypes(documentation);
 
             // Add queries as tools with schema context
             for (const [queryName, query] of queries.entries()) {
@@ -1071,7 +1091,7 @@ Remember: Your job is to ROUTE to API functions, not to perform the task yoursel
       const inputTypeDef = inputTypes.get(baseType);
 
       let description = `Parameter of type ${param.type}`;
-      
+
       if (inputTypeDef) {
         if (inputTypeDef.isEnum) {
           // For enums, show valid values
@@ -1140,6 +1160,11 @@ Remember: Your job is to ROUTE to API functions, not to perform the task yoursel
     apiName: string,
   ): Promise<Record<string, any>> {
     try {
+      // If no args provided, nothing to transform
+      if (!args || Object.keys(args).length === 0) {
+        return args;
+      }
+
       // Load schema to get INPUT type definitions
       const schema = await this.apiManager.loadAPIDocumentation(apiName);
       if (typeof schema !== 'string') return args;
@@ -1148,86 +1173,380 @@ Remember: Your job is to ROUTE to API functions, not to perform the task yoursel
 
       // Build schema context for this operation's parameters
       const parameterSchemas: Record<string, any> = {};
+      
+      this.logger.log(`Operation details: ${JSON.stringify({
+        name: operation.name,
+        type: operation.type,
+        parametersCount: operation.parameters?.length || 0,
+        parameters: operation.parameters?.map((p: any) => `${p.name}: ${p.type}`) || []
+      })}`);
+      
       for (const param of operation.parameters || []) {
         const baseType = param.type.replace(/[[\]!]/g, '').trim();
         const inputTypeDef = inputTypes.get(baseType);
+        this.logger.log(`Looking for INPUT type: ${baseType}, found: ${!!inputTypeDef}`);
         if (inputTypeDef) {
           parameterSchemas[param.name] = inputTypeDef;
         }
       }
 
-      // Use AI to intelligently map generic args to schema fields
-      const mappingPrompt = `You are transforming API parameters to match a GraphQL schema.
+      this.logger.log(`Parameter schemas loaded: ${Object.keys(parameterSchemas).join(', ')}`);
 
-**Original Parameters (from AI):**
+      // If no schema info available, use simple heuristic-based fixes
+      if (Object.keys(parameterSchemas).length === 0) {
+        this.logger.warn(
+          'No schema info loaded - using heuristic field name fixes',
+        );
+        // Apply simple fixes without schema
+        const result = this.applyHeuristicFixes(args);
+        this.logger.log(`Heuristic fixes applied: ${JSON.stringify(result)}`);
+        return result;
+      }
+
+      // Helper function to deeply extract all field names from nested schema
+      const extractAllFieldNames = (
+        schema: any,
+        prefix: string = '',
+      ): string[] => {
+        const fieldNames: string[] = [];
+
+        if (!schema || !schema.fields) return fieldNames;
+
+        for (const [fieldName, fieldType] of Object.entries(
+          schema.fields as Record<string, string>,
+        )) {
+          const fullPath = prefix ? `${prefix}.${fieldName}` : fieldName;
+          fieldNames.push(fullPath);
+
+          // Recursively extract nested fields
+          const cleanType = fieldType.replace(/[[\]!]/g, '').trim();
+          const nestedSchema = inputTypes.get(cleanType);
+          if (nestedSchema && !nestedSchema.isEnum) {
+            fieldNames.push(...extractAllFieldNames(nestedSchema, fullPath));
+          }
+        }
+
+        return fieldNames;
+      };
+
+      // Build comprehensive field list for validation
+      const allValidFields: string[] = [];
+      for (const [paramName, paramSchema] of Object.entries(parameterSchemas)) {
+        allValidFields.push(paramName);
+        allValidFields.push(...extractAllFieldNames(paramSchema, paramName));
+      }
+
+      // Use AI to intelligently validate and transform parameters
+      const mappingPrompt = `You are validating and transforming API parameters to match a GraphQL schema.
+
+**Original Parameters:**
 ${JSON.stringify(args, null, 2)}
 
-**GraphQL Operation Schema:**
-Operation: ${operation.name}
-Parameters: ${operation.parameters?.map((p: any) => `${p.name}: ${p.type}`).join(', ')}
+**GraphQL Operation:** ${operation.name}
+**Operation Parameters:** ${operation.parameters?.map((p: any) => `${p.name}: ${p.type}`).join(', ')}
 
-**INPUT Type Definitions:**
+**Complete Schema Definitions:**
 ${JSON.stringify(parameterSchemas, null, 2)}
 
+**All Valid Field Paths:**
+${allValidFields.join('\n')}
+
 **Your Task:**
-Transform the original parameters to match the exact schema structure.
+Validate and transform the parameters. PRESERVE all valid nested structures.
 
 **CRITICAL RULES:**
-1. Use ONLY field names that exist in the schema - DELETE any fields not in schema
-2. For ENUMs, convert to UPPERCASE (e.g., "asc" → "ASC", "desc" → "DESC")
-3. For sorting field enums, use ONLY values from the schema enum definition
-4. If a field doesn't exist in the schema, REMOVE IT completely
-5. If cursor pagination (first/last/after/before), REMOVE offset/limit fields
-6. For nested filters, use the exact nested structure from schema
+1. IF a top-level parameter exists in the schema, KEEP IT with all its nested fields
+2. For nested fields like filter.city.contains, if "filter" and "city" are in schema, KEEP the entire nested structure
+3. Only DELETE fields that truly don't exist anywhere in the schema hierarchy
+4. Convert enum values to UPPERCASE (asc → ASC, desc → DESC)
+5. For cursor pagination (CursorPaging with first/last), transform limit → first, REMOVE offset
+6. For offset pagination (PagingInput with limit/offset), KEEP limit and offset as-is
 
-**Validation Steps:**
-1. Check each field name against the schema - if not found, DELETE IT
-2. Check each enum value - if not valid, use the first valid value from schema or DELETE
-3. Convert all enum values to UPPERCASE
-4. For nested filters (e.g., address.state), use nested object structure
+**Validation Logic:**
+- Check if top-level param (paging, filter, sorting) exists in operation parameters
+- If YES, keep entire nested structure
+- Only validate/transform nested enum values and pagination style
+- If NO, remove the entire parameter
 
-**Common Transformations:**
-- limit + offset → {"paging": {"first": <limit>}} (REMOVE offset)
-- "asc"/"desc" → "ASC"/"DESC" (UPPERCASE)
-- Invalid field name → DELETE the field entirely
-- Invalid enum value → Use first valid enum value or DELETE
+**Common Valid Structures (preserve these):**
+- {"filter": {"city": {"contains": "value"}}} ← VALID if filter and city exist in schema
+- {"paging": {"limit": 10, "offset": 0}} ← VALID for PagingInput type
+- {"paging": {"first": 10}} ← VALID for CursorPaging type
+- {"sorting": [{"field": "city", "direction": "ASC"}]} ← VALID if sorting exists
+
+**ONLY Transform When Needed:**
+- {"paging": {"limit": 10}} with CursorPaging type → {"paging": {"first": 10}}
+- {"sorting": [{"direction": "asc"}]} → {"sorting": [{"direction": "ASC"}]}
 
 **Examples:**
 
-Example 1 (Invalid field):
-Input: {"filter": {"state": {"like": "UT"}}}
-Schema fields: title, storenumber, email, addressId, address
-Output: {"filter": {}} (state doesn't exist, so remove it)
+Example 1 (Valid nested filter - PRESERVE):
+Input: {"filter": {"city": {"contains": "Salt"}}}
+Schema has: filter: LocationFilter, LocationFilter has: city: StringFilter, StringFilter has: contains
+Output: {"filter": {"city": {"contains": "Salt"}}} ← PRESERVE entire structure!
 
-Example 2 (Nested filter):
-Input: {"filter": {"state": {"like": "UT"}}}
-Schema has nested: address: {state: StringFieldComparison}
-Output: {"filter": {"address": {"state": {"like": "UT"}}}}
+Example 2 (Valid pagination - PRESERVE):
+Input: {"paging": {"limit": 3, "offset": 0}}
+Schema has: paging: PagingInput with {limit: Int, offset: Int}
+Output: {"paging": {"limit": 3, "offset": 0}} ← PRESERVE as-is!
 
-Example 3 (Invalid sort field + lowercase enum):
-Input: {"sorting": [{"field": "city", "direction": "asc"}]}
-Schema enum values: title, storenumber, phoneNumberId (NOT city)
-Output: {"sorting": [{"field": "title", "direction": "ASC"}]}
-Note: Use first valid enum value and UPPERCASE direction
+Example 3 (Cursor pagination - TRANSFORM):
+Input: {"paging": {"limit": 10, "offset": 0}}
+Schema has: paging: CursorPaging with {first: Int, last: Int, after: String, before: String}
+Output: {"paging": {"first": 10}} ← Transform limit→first, remove offset
 
-Return ONLY valid JSON matching the schema:`;
+Example 4 (Invalid top-level param - DELETE):
+Input: {"sortOrder": "asc"}
+Schema params: paging, filter (no sortOrder)
+Output: {} ← Remove invalid top-level param
+
+Return the validated/transformed parameters as JSON:`;
 
       const response = await this.openAIService.createCompletion(
         [{ role: 'system', content: mappingPrompt }],
         { temperature: 0, response_format: { type: 'json_object' } },
       );
 
-      const transformed = JSON.parse(response || '{}');
+      let transformed = JSON.parse(response || '{}');
 
-      this.logger.log(`Parameter transformation:`);
-      this.logger.log(`  Before: ${JSON.stringify(args)}`);
-      this.logger.log(`  After:  ${JSON.stringify(transformed)}`);
+      this.logger.log(`Parameter transformation (before validation):`);
+      this.logger.log(`  AI Output: ${JSON.stringify(transformed)}`);
+
+      // CRITICAL FIX: Deterministically validate and fix field names against schema
+      // This catches cases where AI generated invalid field names like "contains"
+      transformed = this.validateAndFixFieldNames(
+        transformed,
+        parameterSchemas,
+        inputTypes,
+      );
+
+      this.logger.log(`Parameter transformation (final):`);
+      this.logger.log(`  Original: ${JSON.stringify(args)}`);
+      this.logger.log(`  Validated: ${JSON.stringify(transformed)}`);
+
+      // If transformation resulted in empty object but we had parameters, use original
+      if (
+        Object.keys(transformed).length === 0 &&
+        Object.keys(args).length > 0
+      ) {
+        this.logger.warn(
+          'Transformation removed all parameters, using original args',
+        );
+        return args;
+      }
 
       return transformed;
-    } catch {
-      this.logger.warn('Parameter transformation failed, using original args');
+    } catch (error) {
+      this.logger.warn(
+        `Parameter transformation failed: ${error}, using original args`,
+      );
       return args;
     }
+  }
+
+  /**
+   * Validate and fix field names against schema
+   * This is a deterministic post-processing step to catch AI errors
+   */
+  private validateAndFixFieldNames(
+    params: Record<string, any>,
+    parameterSchemas: Record<string, any>,
+    inputTypes: Map<string, any>,
+  ): Record<string, any> {
+    const result: Record<string, any> = {};
+
+    for (const [paramName, paramValue] of Object.entries(params)) {
+      const schema = parameterSchemas[paramName];
+      if (!schema) {
+        // No schema info, keep as-is
+        result[paramName] = paramValue;
+        continue;
+      }
+
+      // Recursively validate nested objects
+      result[paramName] = this.validateNestedFields(
+        paramValue,
+        schema,
+        inputTypes,
+      );
+    }
+
+    return result;
+  }
+
+  /**
+   * Recursively validate nested field names
+   */
+  private validateNestedFields(
+    value: any,
+    schema: any,
+    inputTypes: Map<string, any>,
+  ): any {
+    if (value === null || value === undefined) {
+      return value;
+    }
+
+    // Handle arrays
+    if (Array.isArray(value)) {
+      return value.map((item) =>
+        this.validateNestedFields(item, schema, inputTypes),
+      );
+    }
+
+    // Handle objects
+    if (typeof value === 'object') {
+      const result: Record<string, any> = {};
+
+      for (const [fieldName, fieldValue] of Object.entries(value)) {
+        // Check if this field exists in the schema
+        if (!schema.fields || !schema.fields[fieldName]) {
+          // Field doesn't exist in schema - try to fix common mistakes
+          const fixedField = this.tryFixFieldName(
+            fieldName,
+            fieldValue,
+            schema,
+            inputTypes,
+          );
+
+          if (fixedField) {
+            result[fixedField.name] = fixedField.value;
+            this.logger.log(
+              `Fixed field name: ${fieldName} → ${fixedField.name}`,
+            );
+          } else {
+            // Can't fix, log warning and skip
+            this.logger.warn(
+              `Field "${fieldName}" not found in schema type "${schema.name}", skipping`,
+            );
+          }
+          continue;
+        }
+
+        // Field exists, get its type
+        const fieldType = (schema.fields[fieldName] as string)
+          .replace(/[[\]!]/g, '')
+          .trim();
+        const fieldSchema = inputTypes.get(fieldType);
+
+        if (fieldSchema && !fieldSchema.isEnum) {
+          // Recursively validate nested object
+          result[fieldName] = this.validateNestedFields(
+            fieldValue,
+            fieldSchema,
+            inputTypes,
+          );
+        } else {
+          // Scalar or enum value, keep as-is
+          result[fieldName] = fieldValue;
+        }
+      }
+
+      return result;
+    }
+
+    // Primitive value
+    return value;
+  }
+
+  /**
+   * Try to fix common field name mistakes using DYNAMIC schema analysis
+   * NO HARDCODING - reads actual schema at runtime
+   */
+  private tryFixFieldName(
+    fieldName: string,
+    fieldValue: any,
+    schema: any,
+    inputTypes: Map<string, any>,
+  ): { name: string; value: any } | null {
+    // Get the full schema content to extract comparison operators
+    const schemaName = schema.name;
+    
+    // If this is a comparison type (e.g., StringFieldComparison, IntFieldComparison)
+    if (schemaName && schemaName.includes('Comparison') && schema.fields) {
+      const availableFields = Object.keys(schema.fields);
+      
+      // Use the schema parser to find the best matching field
+      const bestMatch = this.graphQLParser.findBestFieldMatch(
+        fieldName,
+        availableFields,
+        'auto', // Auto-detect intent from field name
+      );
+      
+      if (bestMatch && bestMatch !== fieldName) {
+        this.logger.log(
+          `Dynamic field mapping: ${fieldName} → ${bestMatch} (schema: ${schemaName}, available: ${availableFields.join(', ')})`,
+        );
+        
+        // Prepare the value
+        let finalValue = fieldValue;
+        
+        // If mapping to a pattern-match field (like, iLike, contains), ensure % wildcards
+        if (['like', 'iLike', 'contains'].includes(bestMatch)) {
+          const stringValue =
+            typeof fieldValue === 'string' ? fieldValue : String(fieldValue);
+          finalValue = stringValue.includes('%')
+            ? stringValue
+            : `%${stringValue}%`;
+        }
+        
+        return { name: bestMatch, value: finalValue };
+      }
+    }
+
+    // No fix available
+    return null;
+  }
+
+  /**
+   * Apply heuristic fixes to common field name mistakes
+   * Used when schema info is not available
+   */
+  private applyHeuristicFixes(
+    params: Record<string, any>,
+  ): Record<string, any> {
+    const result: Record<string, any> = {};
+
+    for (const [key, value] of Object.entries(params)) {
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        // Recursively fix nested objects
+        result[key] = this.applyHeuristicFixes(value);
+      } else if (Array.isArray(value)) {
+        // Fix array items
+        result[key] = value.map((item) =>
+          typeof item === 'object' && item !== null
+            ? this.applyHeuristicFixes(item)
+            : item,
+        );
+      } else {
+        result[key] = value;
+      }
+
+      // Special case: if we see "contains" field in what looks like a filter structure
+      // Convert to "like" with % wildcards (like works with both PostgreSQL and Oracle)
+      if (key === 'contains' && typeof value === 'string') {
+        delete result[key];
+        const wrappedValue = value.includes('%') ? value : `%${value}%`;
+        result['like'] = wrappedValue;
+        this.logger.log(`Heuristic fix: contains → like for value "${value}"`);
+      }
+
+      // Special case: CursorPaging uses "first"/"last", not "limit"/"offset"
+      // This is a common mistake when AI doesn't have schema context
+      if (key === 'paging' && value && typeof value === 'object') {
+        if ('limit' in value && !('first' in value) && !('last' in value)) {
+          result[key] = { ...value };
+          result[key].first = value.limit;
+          delete result[key].limit;
+          this.logger.log(`Heuristic fix: paging.limit → paging.first`);
+        }
+        if ('offset' in value) {
+          delete result[key].offset;
+          this.logger.log(`Heuristic fix: removed paging.offset (not supported in CursorPaging)`);
+        }
+      }
+    }
+
+    return result;
   }
 
   /**
@@ -1274,29 +1593,44 @@ Return ONLY valid JSON matching the schema:`;
           (op: any) => {
             const responseLower = userResponse.toLowerCase();
             const toolNameLower = op.toolName.toLowerCase();
-            
+
             // Exact match or contains operation name
-            if (responseLower === toolNameLower || responseLower.includes(toolNameLower)) {
+            if (
+              responseLower === toolNameLower ||
+              responseLower.includes(toolNameLower)
+            ) {
               return true;
             }
-            
+
             // Match action words in natural language
             // e.g., "generate a new quiz" matches "GenerateQuizController_generate"
-            if (responseLower.includes('generate') && toolNameLower.includes('generate')) {
+            if (
+              responseLower.includes('generate') &&
+              toolNameLower.includes('generate')
+            ) {
               return true;
             }
-            if (responseLower.includes('grade') && toolNameLower.includes('grade')) {
+            if (
+              responseLower.includes('grade') &&
+              toolNameLower.includes('grade')
+            ) {
               return true;
             }
-            if (responseLower.includes('list') && toolNameLower.includes('list')) {
+            if (
+              responseLower.includes('list') &&
+              toolNameLower.includes('list')
+            ) {
               return true;
             }
-            if (responseLower.includes('create') && toolNameLower.includes('create')) {
+            if (
+              responseLower.includes('create') &&
+              toolNameLower.includes('create')
+            ) {
               return true;
             }
-            
+
             return false;
-          }
+          },
         );
 
         if (chosenOperation && pendingOp.originalRequest) {
@@ -1306,7 +1640,7 @@ Return ONLY valid JSON matching the schema:`;
 
           // Load schema for the chosen operation
           const operation = chosenOperation.apiInfo.operation;
-          
+
           // Use AI to extract parameters from the original request
           const extractionPrompt = `Extract API parameters from this natural language request.
 
@@ -1324,16 +1658,19 @@ Examples:
 
 Return ONLY valid JSON with extracted parameters:`;
 
-          const extractedArgsResponse = await this.openAIService.createCompletion(
-            [{ role: 'system', content: extractionPrompt }],
-            { temperature: 0.1, response_format: { type: 'json_object' } },
-          );
+          const extractedArgsResponse =
+            await this.openAIService.createCompletion(
+              [{ role: 'system', content: extractionPrompt }],
+              { temperature: 0.1, response_format: { type: 'json_object' } },
+            );
 
           let extractedArgs: Record<string, any> = {};
           try {
             extractedArgs = JSON.parse(extractedArgsResponse || '{}');
           } catch {
-            this.logger.warn('Failed to parse extracted args, using empty object');
+            this.logger.warn(
+              'Failed to parse extracted args, using empty object',
+            );
           }
 
           this.logger.log(`Extracted args: ${JSON.stringify(extractedArgs)}`);
@@ -1478,7 +1815,7 @@ IMPORTANT:
   private async askForNextParameter(
     email: string,
     pendingOp: any,
-    context: string,
+    _context: string,
   ): Promise<any> {
     try {
       const collected = pendingOp.collectedParams || {};
@@ -1550,7 +1887,7 @@ IMPORTANT:
               parameterAnalysis = `\n\nDETAILED PARAMETER STRUCTURE:${summaries.join('\n')}`;
             }
           }
-        } catch (error) {
+        } catch (_error) {
           this.logger.warn(
             'Failed to analyze parameter structure, using basic prompting',
           );
@@ -1559,7 +1896,7 @@ IMPORTANT:
 
       // Build a simple, direct prompt based on what parameters are actually missing
       let systemPrompt: string;
-      
+
       if (requiredStillNeeded.length > 0) {
         // Simple, direct ask for required params - don't invent options
         systemPrompt = `Ask the user for the required parameter: ${requiredStillNeeded[0]}
@@ -1631,8 +1968,8 @@ CRITICAL: Do NOT invent parameters. Only mention the parameters listed above.`;
         collectedParams,
         apiToolMap,
       );
-    } catch (error: any) {
-      this.logger.error('Failed to execute with collected params:', error);
+    } catch (_error: any) {
+      this.logger.error('Failed to execute with collected params:', _error);
       return {
         error: 'Failed to execute operation. Please try again.',
       };
