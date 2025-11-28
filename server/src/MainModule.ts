@@ -1,17 +1,17 @@
 import { Module } from '@nestjs/common';
-import { DatabaseModule } from './database/DatabaseModule.js';
-import { SwaggerModule } from './swagger/SwaggerModule.js';
-import { OpenAIModule } from './openai/OpenAIModule.js';
-import { IntelligentQueryModule } from './intelligentQuery/IntelligentQueryModule.js';
-import { QuizModule } from './quiz/QuizModule.js';
+import { DatabaseModule } from './database/DatabaseModule';
+import { OpenAPIModule } from './openapi/OpenAPIModule';
+import { OpenAIModule } from './openai/OpenAIModule';
+import { IntelligentQueryModule } from './intelligentQuery/IntelligentQueryModule';
+import { QuizModule } from './quiz/QuizModule';
 
 @Module({
   imports: [
     DatabaseModule,
-    SwaggerModule,
+    OpenAPIModule,
     OpenAIModule,
     IntelligentQueryModule,
-    QuizModule
+    QuizModule,
   ],
 })
 export class MainModule {}

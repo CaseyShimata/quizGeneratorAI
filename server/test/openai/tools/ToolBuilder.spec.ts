@@ -31,7 +31,10 @@ describe('ToolBuilder', () => {
                     required: ['title', 'questions'],
                     properties: {
                       title: { type: 'string' },
-                      difficulty: { type: 'string', enum: ['easy', 'medium', 'hard'] },
+                      difficulty: {
+                        type: 'string',
+                        enum: ['easy', 'medium', 'hard'],
+                      },
                       meta: {
                         type: 'object',
                         properties: {
@@ -39,7 +42,10 @@ describe('ToolBuilder', () => {
                           tags: { type: 'array', items: { type: 'string' } },
                         },
                       },
-                      questions: { type: 'array', items: { $ref: '#/components/schemas/Question' } },
+                      questions: {
+                        type: 'array',
+                        items: { $ref: '#/components/schemas/Question' },
+                      },
                     },
                   },
                 },
@@ -52,7 +58,12 @@ describe('ToolBuilder', () => {
             operationId: 'getQuizById',
             summary: 'Get quiz by id',
             parameters: [
-              { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+              {
+                name: 'id',
+                in: 'path',
+                required: true,
+                schema: { type: 'string' },
+              },
             ],
           },
         },
@@ -60,8 +71,8 @@ describe('ToolBuilder', () => {
     };
 
     const tools = ToolBuilder.buildTools(doc);
-    const createTool = tools.find(t => t.function.name === 'createQuiz');
-    const getTool = tools.find(t => t.function.name === 'getQuizById');
+    const createTool = tools.find((t) => t.function.name === 'createQuiz');
+    const getTool = tools.find((t) => t.function.name === 'getQuizById');
 
     expect(createTool).toBeTruthy();
     expect(getTool).toBeTruthy();
@@ -70,14 +81,14 @@ describe('ToolBuilder', () => {
     expect(params.type).toBe('object');
     // top-level body fields should be exposed
     expect(Object.keys(params.properties)).toEqual(
-      expect.arrayContaining(['title', 'difficulty', 'meta', 'questions'])
+      expect.arrayContaining(['title', 'difficulty', 'meta', 'questions']),
     );
 
     // nested meta object should include children
     const meta = (params as any).properties['meta'];
     expect(meta.type).toBe('object');
     expect(Object.keys(meta.properties)).toEqual(
-      expect.arrayContaining(['author', 'tags'])
+      expect.arrayContaining(['author', 'tags']),
     );
 
     // questions should be an array of objects resolved via $ref
@@ -85,11 +96,13 @@ describe('ToolBuilder', () => {
     expect(questions.type).toBe('array');
     expect(questions.items.type).toBe('object');
     expect(Object.keys(questions.items.properties)).toEqual(
-      expect.arrayContaining(['prompt', 'choices'])
+      expect.arrayContaining(['prompt', 'choices']),
     );
 
     // required propagation for body-level fields
-    expect(params.required).toEqual(expect.arrayContaining(['title', 'questions']));
+    expect(params.required).toEqual(
+      expect.arrayContaining(['title', 'questions']),
+    );
 
     // get endpoint should include path parameter
     const getParams = getTool!.function.parameters;

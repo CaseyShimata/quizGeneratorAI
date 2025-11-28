@@ -20,7 +20,7 @@ export class PromptBuilder {
    */
   static buildUserPrompt(
     request: string,
-    context?: Record<string, any>
+    context?: Record<string, any>,
   ): string {
     if (!context || Object.keys(context).length === 0) {
       return request;
@@ -39,11 +39,12 @@ export class PromptBuilder {
   static buildMessages(
     systemPrompt: string,
     userPrompt: string,
-    history?: Array<{ role: 'user' | 'assistant'; content: string }>
+    history?: Array<{ role: 'user' | 'assistant'; content: string }>,
   ): Array<{ role: 'system' | 'user' | 'assistant'; content: string }> {
-    const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
-      { role: 'system', content: systemPrompt }
-    ];
+    const messages: Array<{
+      role: 'system' | 'user' | 'assistant';
+      content: string;
+    }> = [{ role: 'system', content: systemPrompt }];
 
     if (history && history.length > 0) {
       messages.push(...history);

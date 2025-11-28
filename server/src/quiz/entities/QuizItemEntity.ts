@@ -1,7 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument } from 'mongoose';
 import { v4 as uuidv4 } from 'uuid';
-import { Answer } from './AnswerEntity.js';
+import { Answer } from './AnswerEntity';
 
 // Define a type for the hydrated Mongoose document
 export type QuizItemDocument = HydratedDocument<QuizItem>;

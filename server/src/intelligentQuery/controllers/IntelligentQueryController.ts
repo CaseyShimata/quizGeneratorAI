@@ -1,7 +1,7 @@
 import { Body, Controller, Post } from '@nestjs/common';
-import { IntelligentRouterService } from '../services/IntelligentRouterService.js';
+import { IntelligentRouterService } from '../services/IntelligentRouterService';
 import { z } from 'zod';
-import { ApiBody, ApiOperation } from "@nestjs/swagger";
+import { ApiBody, ApiOperation } from '@nestjs/swagger';
 
 /**
  * Intelligent Query Controller
@@ -11,20 +11,18 @@ import { ApiBody, ApiOperation } from "@nestjs/swagger";
 
 const ConversationalQueryInputZ = z.object({
   email: z.string().email('Valid email required'),
-  message: z.string().min(1, 'Message cannot be empty')
+  message: z.string().min(1, 'Message cannot be empty'),
 });
 
 @Controller('api')
 export class IntelligentQueryController {
-  constructor(
-    private readonly intelligentRouterService: IntelligentRouterService
-  ) {}
+  constructor(private readonly intelligentRouter: IntelligentRouterService) {}
 
   /**
    * Process a conversational query
    * Supports multi-turn conversations with parameter collection
    * Conversation history is tracked per email address
-   * 
+   *
    * Examples:
    * - "What can I do?" → Lists available endpoints
    * - "Generate a quiz" → Asks for topic
@@ -37,31 +35,33 @@ export class IntelligentQueryController {
     - Help you discover what endpoints are available
     - Guide you through providing required parameters
     - Execute API calls when it has all needed information
-    - Remember context per email address (auto-truncates after 20 messages)`
+    - Remember context per email address (auto-truncates after 20 messages)`,
   })
   @ApiBody({
     schema: {
       type: 'object',
       required: ['email', 'message'],
       properties: {
-        email: { 
-          type: 'string', 
+        email: {
+          type: 'string',
           format: 'email',
           example: 'user@example.com',
-          description: 'Your email address (used to track conversation)'
+          description: 'Your email address (used to track conversation)',
         },
-        message: { 
-          type: 'string', 
+        message: {
+          type: 'string',
           example: 'What can I do?',
-          description: 'Your natural language message or question'
-        }
-      }
-    }
+          description: 'Your natural language message or question',
+        },
+      },
+    },
   })
   async processConversationalQuery(@Body() body: any) {
     const { email, message } = ConversationalQueryInputZ.parse(body);
 
-    const resp = await this.intelligentRouterService.processRequest(message, { email });
+    const resp = await this.intelligentRouter.processRequest(message, {
+      email,
+    });
 
     // Normalize response to include email consistently for the client
     if (resp && typeof resp === 'object' && !Array.isArray(resp)) {

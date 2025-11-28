@@ -1,6 +1,6 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
-import { ListQuizzesService } from '../services/ListQuizzesService.js';
+import { ListQuizzesService } from '../services/ListQuizzesService';
 
 /**
  * List Quizzes Controller
@@ -12,7 +12,7 @@ class ListQuizzesController {
   constructor(private readonly service: ListQuizzesService) {}
 
   @Get('list')
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'List quizzes for a user',
     description: `Retrieve quizzes for a user with flexible filtering, sorting, and pagination.
     - email: exact or partial (regex) match for email address
@@ -26,52 +26,58 @@ class ListQuizzesController {
     - email=shimatacb&limit=3 (first 3 recent)
     - email=foo@bar.com&limit=3&sortDir=asc (first 3 oldest)
     - email=example&filters={"quiz.topic":"elephants"}&sortBy=updatedAt&sortDir=desc
-    `
+    `,
   })
-  @ApiQuery({ 
-    name: 'email', 
+  @ApiQuery({
+    name: 'email',
     type: 'string',
-    description: 'Email address or pattern to search for. Supports regex patterns.',
+    description:
+      'Email address or pattern to search for. Supports regex patterns.',
     example: 'user@example.com',
-    required: true
+    required: true,
   })
-  @ApiQuery({ 
-    name: 'limit', 
+  @ApiQuery({
+    name: 'limit',
     type: 'number',
     description: 'Maximum number of results to return.',
     example: 10,
-    required: false
+    required: false,
   })
-  @ApiQuery({ 
-    name: 'offset', 
+  @ApiQuery({
+    name: 'offset',
     type: 'number',
     description: 'Number of results to skip (for pagination).',
     example: 0,
-    required: false
+    required: false,
   })
-  @ApiQuery({ 
-    name: 'sortBy', 
+  @ApiQuery({
+    name: 'sortBy',
     type: 'string',
-    description: 'Field name to sort by (default: createdAt). Supports dot-notation for nested fields, e.g., "quiz.topic". Alias: "topic" → "quiz.topic".',
+    description:
+      'Field name to sort by (default: createdAt). Supports dot-notation for nested fields, e.g., "quiz.topic". Alias: "topic" → "quiz.topic".',
     example: 'quiz.topic',
     required: false,
-    enum: ['createdAt', 'updatedAt', 'email', 'quiz.topic']
+    enum: ['createdAt', 'updatedAt', 'email', 'quiz.topic'],
   })
-  @ApiQuery({ 
-    name: 'sortDir', 
+  @ApiQuery({
+    name: 'sortDir',
     type: 'string',
     description: 'Sort direction: asc or desc (default: desc).',
     example: 'desc',
     required: false,
   })
-  @ApiQuery({ 
-    name: 'filters', 
+  @ApiQuery({
+    name: 'filters',
     type: 'string',
-    description: 'JSON object of additional field filters to AND with email match.',
+    description:
+      'JSON object of additional field filters to AND with email match.',
     example: '{"quiz.topic":"elephants"}',
-    required: false
+    required: false,
   })
-  @ApiResponse({ status: 200, description: 'List of quizzes returned successfully' })
+  @ApiResponse({
+    status: 200,
+    description: 'List of quizzes returned successfully',
+  })
   @ApiResponse({ status: 400, description: 'Invalid query parameter' })
   async list(
     @Query('email') email: string,
@@ -85,7 +91,11 @@ class ListQuizzesController {
     const offsetNum = offset ? parseInt(offset, 10) : undefined;
     let parsedFilters: Record<string, any> | undefined = undefined;
     if (filters) {
-      try { parsedFilters = JSON.parse(filters); } catch { parsedFilters = undefined; }
+      try {
+        parsedFilters = JSON.parse(filters);
+      } catch {
+        parsedFilters = undefined;
+      }
     }
 
     // Normalize sortBy aliases and support nested fields
@@ -98,7 +108,7 @@ class ListQuizzesController {
     return this.service.execute(email, limitNum, {
       offset: offsetNum,
       sortBy: normalizedSortBy,
-      sortDir: (sortDir === 'asc' || sortDir === 'desc') ? (sortDir as 'asc' | 'desc') : undefined,
+      sortDir: sortDir === 'asc' || sortDir === 'desc' ? sortDir : undefined,
       filters: parsedFilters,
     });
   }

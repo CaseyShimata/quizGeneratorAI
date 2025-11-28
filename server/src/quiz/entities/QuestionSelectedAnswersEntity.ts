@@ -2,7 +2,8 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument } from 'mongoose';
 
 // Define a type for the hydrated Mongoose document
-export type QuestionSelectedAnswersDocument = HydratedDocument<QuestionSelectedAnswers>;
+export type QuestionSelectedAnswersDocument =
+  HydratedDocument<QuestionSelectedAnswers>;
 
 @Schema()
 class QuestionSelectedAnswers {
@@ -13,6 +14,8 @@ class QuestionSelectedAnswers {
   selectedAnswerIds: string[];
 }
 
-const QuestionSelectedAnswersSchema = SchemaFactory.createForClass(QuestionSelectedAnswers);
+const QuestionSelectedAnswersSchema = SchemaFactory.createForClass(
+  QuestionSelectedAnswers,
+);
 
 export { QuestionSelectedAnswers, QuestionSelectedAnswersSchema };

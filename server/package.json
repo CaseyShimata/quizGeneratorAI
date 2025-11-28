@@ -5,7 +5,6 @@
   "author": "",
   "private": true,
   "license": "UNLICENSED",
-  "type": "module",
   "scripts": {
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
@@ -21,15 +20,13 @@
     "test:e2e": "jest --config ./test/jest-e2e.json"
   },
   "dependencies": {
-    "@langchain/core": "^0.3.78",
-    "@langchain/openai": "^0.6.16",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.0.1",
     "@nestjs/mongoose": "^11.0.3",
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/swagger": "^11.2.0",
-    "langchain": "^0.3.36",
+    "graphql": "^16.11.0",
     "mongoose": "^8.19.0",
     "openai": "^6.1.0",
     "reflect-metadata": "^0.2.2",
@@ -62,28 +59,20 @@
     "typescript-eslint": "^8.20.0"
   },
   "jest": {
-    "preset": "ts-jest",
+    "moduleFileExtensions": [
+      "js",
+      "json",
+      "ts"
+    ],
     "rootDir": ".",
-    "testMatch": [
-      "<rootDir>/test/**/*.spec.ts"
-    ],
+    "testRegex": ".*\\.spec\\.ts$",
     "transform": {
-      "^.+\\.[tj]sx?$": [
-        "ts-jest",
-        {
-          "useESM": false,
-          "tsconfig": "<rootDir>/tsconfig.jest.json"
-        }
-      ]
+      "^.+\\.(t|j)s$": "ts-jest"
     },
-    "moduleNameMapper": {
-      "^(\\.{1,2}/.*)\\.js$": "$1"
-    },
-    "moduleFileExtensions": ["ts", "tsx", "js", "jsx", "json", "node"],
     "collectCoverageFrom": [
-      "src/**/*.(t|j)s"
+      "**/*.(t|j)s"
     ],
-    "coverageDirectory": "coverage",
+    "coverageDirectory": "../coverage",
     "testEnvironment": "node"
   }
 }

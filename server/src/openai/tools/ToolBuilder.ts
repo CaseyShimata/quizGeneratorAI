@@ -31,16 +31,29 @@ export class ToolBuilder {
     const tools: OpenAITool[] = [];
 
     for (const [path, methods] of Object.entries(doc.paths)) {
-      for (const [method, details] of Object.entries(methods as Record<string, any>)) {
-        if (!['get', 'post', 'put', 'delete', 'patch'].includes(method.toLowerCase())) continue;
+      for (const [method, details] of Object.entries(
+        methods as Record<string, any>,
+      )) {
+        if (
+          !['get', 'post', 'put', 'delete', 'patch'].includes(
+            method.toLowerCase(),
+          )
+        )
+          continue;
 
-        const operation = details as any;
+        const operation = details;
         const parameters = ToolBuilder.buildParameters(operation, doc);
         const name = ToolBuilder.getOperationName(operation, method, path);
-        const description = operation.summary || operation.description || `${method.toUpperCase()} ${path}`;
+        const description =
+          operation.summary ||
+          operation.description ||
+          `${method.toUpperCase()} ${path}`;
 
         // Include GET operations even if they declare no parameters
-        if (Object.keys(parameters.properties).length === 0 && method.toLowerCase() !== 'get') {
+        if (
+          Object.keys(parameters.properties).length === 0 &&
+          method.toLowerCase() !== 'get'
+        ) {
           continue;
         }
 
@@ -49,8 +62,8 @@ export class ToolBuilder {
           function: {
             name,
             description,
-            parameters
-          }
+            parameters,
+          },
         });
       }
     }
@@ -58,11 +71,18 @@ export class ToolBuilder {
     return tools;
   }
 
-  static buildParameters(operation: any, doc: OpenApiDoc): { type: 'object'; properties: Record<string, any>; required: string[] } {
-    const parameters: { type: 'object'; properties: Record<string, any>; required: string[] } = {
+  static buildParameters(
+    operation: any,
+    doc: OpenApiDoc,
+  ): { type: 'object'; properties: Record<string, any>; required: string[] } {
+    const parameters: {
+      type: 'object';
+      properties: Record<string, any>;
+      required: string[];
+    } = {
       type: 'object',
       properties: {},
-      required: []
+      required: [],
     };
 
     // Query/path parameters
@@ -72,7 +92,10 @@ export class ToolBuilder {
         if (location === 'query' || location === 'path') {
           const schema = ToolBuilder.simplifySchema(param.schema, doc);
           if (schema) {
-            parameters.properties[param.name] = { ...schema, description: param.description || '' };
+            parameters.properties[param.name] = {
+              ...schema,
+              description: param.description || '',
+            };
             if (param.required) parameters.required.push(param.name);
           }
         }
@@ -80,13 +103,18 @@ export class ToolBuilder {
     }
 
     // JSON request body
-    const bodySchema = operation.requestBody?.content?.['application/json']?.schema;
+    const bodySchema =
+      operation.requestBody?.content?.['application/json']?.schema;
     if (bodySchema) {
       const simplified = ToolBuilder.simplifySchema(bodySchema, doc);
       if (simplified && simplified.type === 'object' && simplified.properties) {
         Object.assign(parameters.properties, simplified.properties);
         if (Array.isArray(simplified.required)) {
-          parameters.required.push(...simplified.required.filter((r: string) => r in parameters.properties));
+          parameters.required.push(
+            ...simplified.required.filter(
+              (r: string) => r in parameters.properties,
+            ),
+          );
         }
       }
     }
@@ -100,7 +128,11 @@ export class ToolBuilder {
     if (schema.$ref && typeof schema.$ref === 'string') {
       const ref = schema.$ref.replace(/^#\//, '');
       const parts = ref.split('/');
-      if (parts.length >= 3 && parts[0] === 'components' && parts[1] === 'schemas') {
+      if (
+        parts.length >= 3 &&
+        parts[0] === 'components' &&
+        parts[1] === 'schemas'
+      ) {
         const name = parts[2];
         const target = doc.components?.schemas?.[name];
         if (target) return ToolBuilder.simplifySchema(target, doc, depth + 1);
@@ -119,7 +151,11 @@ export class ToolBuilder {
     }
 
     if (type === 'array' && schema.items) {
-      const itemSchema = ToolBuilder.simplifySchema(schema.items, doc, depth + 1);
+      const itemSchema = ToolBuilder.simplifySchema(
+        schema.items,
+        doc,
+        depth + 1,
+      );
       if (itemSchema) {
         return { type: 'array', items: itemSchema };
       }
@@ -128,11 +164,17 @@ export class ToolBuilder {
 
     if (type === 'object') {
       const properties: Record<string, any> = {};
-      const required: string[] = Array.isArray(schema.required) ? schema.required.slice() : [];
+      const required: string[] = Array.isArray(schema.required)
+        ? schema.required.slice()
+        : [];
 
       if (schema.properties) {
         for (const [key, child] of Object.entries(schema.properties)) {
-          const simplified = ToolBuilder.simplifySchema(child as any, doc, depth + 1);
+          const simplified = ToolBuilder.simplifySchema(
+            child as any,
+            doc,
+            depth + 1,
+          );
           if (simplified) properties[key] = simplified;
         }
       }
@@ -143,7 +185,11 @@ export class ToolBuilder {
     return null;
   }
 
-  static getOperationName(operation: any, method: string, path: string): string {
+  static getOperationName(
+    operation: any,
+    method: string,
+    path: string,
+  ): string {
     if (operation?.operationId && typeof operation.operationId === 'string') {
       return operation.operationId; // honor existing camelCase/PascalCase naming
     }
@@ -152,8 +198,8 @@ export class ToolBuilder {
     const pathPart = path
       .split('/')
       .filter(Boolean)
-      .map(seg => seg.replace(/\{|\}/g, ''))
-      .map(seg => seg.charAt(0).toUpperCase() + seg.slice(1))
+      .map((seg) => seg.replace(/\{|\}/g, ''))
+      .map((seg) => seg.charAt(0).toUpperCase() + seg.slice(1))
       .join('');
     return `${methodPart}${pathPart}`;
   }

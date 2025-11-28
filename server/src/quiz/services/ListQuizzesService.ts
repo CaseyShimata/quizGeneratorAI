@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import { UserQuiz, UserQuizDocument } from '../entities/index.js';
+import { UserQuiz, UserQuizDocument } from '../entities/index';
 
 /**
  * List Quizzes Service
@@ -11,7 +11,7 @@ import { UserQuiz, UserQuizDocument } from '../entities/index.js';
 class ListQuizzesService {
   constructor(
     @InjectModel(UserQuiz.name)
-    private readonly userQuizModel: Model<UserQuizDocument>
+    private readonly userQuizModel: Model<UserQuizDocument>,
   ) {}
 
   /**
@@ -30,21 +30,22 @@ class ListQuizzesService {
       sortDir?: 'asc' | 'desc';
       filters?: Record<string, any>;
       limit?: number; // allow specifying via options
-    }
+    },
   ): Promise<UserQuiz[]> {
     // Build base filter with email regex, merge with provided filters (AND)
     const baseFilter: Record<string, any> = {
-      email: { $regex: emailPattern, $options: 'i' }
+      email: { $regex: emailPattern, $options: 'i' },
     };
 
     const mergedFilter = {
       ...baseFilter,
-      ...(options?.filters ?? {})
+      ...(options?.filters ?? {}),
     };
 
-    let query = this.userQuizModel
-      .find(mergedFilter)
-      .sort({ [options?.sortBy || 'createdAt']: (options?.sortDir || 'desc') === 'asc' ? 1 : -1 });
+    let query = this.userQuizModel.find(mergedFilter).sort({
+      [options?.sortBy || 'createdAt']:
+        (options?.sortDir || 'desc') === 'asc' ? 1 : -1,
+    });
 
     const finalLimit = options?.limit ?? limit;
     if (finalLimit && finalLimit > 0) {
